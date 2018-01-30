@@ -135,6 +135,9 @@ int main(void)
   MX_USART1_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+	
+	printf("DEBUG: Application started\r\n");
+
 	MPU_Init( &hi2c1 );
 	
 	BSP_LED_Init(LED3);
@@ -319,17 +322,22 @@ static void MX_GPIO_Init(void)
 /*** ==== BLUETOOTH ================================================================================= ***/
 /*** ================================================================================================ ***/
 
-void UART_Send (const char message[])
-{
+HAL_StatusTypeDef UART_WaitIfBusy() {
 	for (int i = 0; mUartTxBusyFlag && i < 100; i++)
 		HAL_Delay(1);
 	
-	if (mUartTxBusyFlag) {
-		// Send Data timeout
-		return;
-	}
+	if (mUartTxBusyFlag)
+		return HAL_ERROR;
 	
 	mUartTxBusyFlag  = 1;
+	
+	return HAL_OK;
+}
+
+void UART_Send (const char message[])
+{
+	if (UART_WaitIfBusy() != HAL_OK)
+		return;
 		
 	mUartTxBufSz = strlen(message);
 	if (mUartTxBufSz > UART_TX_MAXBUF_SZ)
@@ -346,9 +354,20 @@ void UART_Send (const char message[])
 	HAL_UART_Transmit_IT(&huart1, (uint8_t*)mUartTxbuffer, mUartTxBufSz);
 }
 
+void UART_SendChar( const int ch ) {
+	if (UART_WaitIfBusy() != HAL_OK)
+		return;
+	
+	mUartTxBufSz = 1;
+	mUartTxbuffer[0] = (char) ch;
+	
+	HAL_UART_Transmit_IT(&huart1, (uint8_t*)mUartTxbuffer, mUartTxBufSz);
+}
+	
+
 void UART_CommandProcessor (void)
 {
-	UART_Send("DEBUG: Command Received");
+	printf("DEBUG: CMD received: '%s'\r\n", mUartRxString);
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
@@ -413,92 +432,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /*** ==== I2C ======================================================================================= ***/
 /*** ================================================================================================ ***/
 
-void MPU_Init(I2C_HandleTypeDef *hi2c) {
-	HAL_StatusTypeDef res;
-	uint8_t t;
-	
-	// reset all settings
-	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_WHOAMI, 1, &t, 8, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		UART_Send("ERROR: Can't get MPU ID (I2C)\r\n");
-		return;
-	}
-	
-	if ( (t&0xf) != 0x71) {
-		UART_Send("WARNING: device has invalid device ID (I2C)\r\n");
-	}
-		
-	// Clear sleep mode bit (6), reset and enable all sensors 
-	// t = (FLG_PWR_MGMT_1_DEFAULT | FLG_PWR_MGMT_1_CLKSEL_PLL_AUTO);
-	t = FLG_PWR_MGMT_1_DEFAULT; // = FLG_PWR_MGMT_1_CLKSEL_INTERNAL_20MHz
-	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_PWR_MGMT_1, 1, &t, 1, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		UART_Send("ERROR: Can't init MPU (I2C)\r\n");
-		return;
-	}
-	
-	HAL_Delay(100);
-
-	// Configure Gyro and Accelerometer
-	// Disable FSYNC and set accelerometer and gyro bandwidth to 44 and 42 Hz, respectively;
-	// DLPF_CFG = bits 2:0 = 010; this sets the sample rate at 1 kHz for both
-	// Maximum delay is 4.9 ms which is just over a 200 Hz maximum rate
-	t = FLG_CONFIG_EXT_SYNC_SET_DISABLED | FLG_CONFIG_DLPF_CFG_41HZ;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, FLG_CONFIG_DLPF_CFG_41HZ, 1, &t, 1, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		UART_Send("ERROR: Can't init MPU: DLPF_CFG (I2C)\r\n");
-		return;
-	}
-
-	// Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-	t = FLG_SMPLRT_DIV;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_SMPLRT_DIV, 1, &t, 1, MPU_I2C_TIMEOUT);   // Use a 200 Hz rate; the same rate set in CONFIG above
-   
-	// Set gyroscope full scale range
-	// Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_GYRO_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);    // get current GYRO_CONFIG register value
-	
-  t &= ~MASK_GYRO_CFG_SELFTEST; // Clear self-test bits [7:5]
-	t &= ~MASK_GYRO_CFG_FS; // Clear AFS bits [4:3]
-	t &= ~MASK_GYRO_CFG_FCHOICE; // Clear Fchoice bits [1:0]
-	t |= FLG_GYRO_CFG_GYRO_FS_250DPS; // Set full scale range for the gyro - 0=+250dps
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_GYRO_CFG, 1, &t, 1, MPU_I2C_TIMEOUT);    // Write new GYRO_CONFIG value to register
- 
-  // Set accelerometer full-scale range configuration
-  HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG register value
-	
-  t &= ~MASK_ACCEL_CFG_SELFTEST; // Clear self-test bits [7:5]
-  t &= ~MASK_ACCEL_CFG_FS;  // Clear AFS bits [4:3]
-  t |= FLG_ACCEL_CFG_FS_2G; // Set full scale range for the accelerometer  - 0=2g
-  HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG register value
-   
-  // Set accelerometer sample rate configuration
-  // It is possible to get a 4 kHz sample rate from the accelerometer by choosing 1 for
-  // accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG2, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG2 register value
-
-	t &= ~MASK_GYRO_CFG2_FCHOICE; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0]) 
-  t |= FLG_ACCEL_CFG_DLPFCFG;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG2, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG2 register value
-   
-   // The accelerometer, gyro, and thermometer are set to 1 kHz sample rates,
-   // but all these rates are further reduced by a factor of 5 to 200 Hz because of the SMPLRT_DIV setting
-
-   // Configure Interrupts and Bypass Enable
-  // Set interrupt pin active high, push-pull, and clear on read of INT_STATUS, enable I2C_BYPASS_EN so additional chips
-  // can join the I2C bus and all can be controlled by the Arduino as master
-   //R=0x22;
-   //HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, INT_PIN_CFG, 1, &R, 1, 100);
-  //R=0x01;
-   //HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, INT_ENABLE, 1, &R, 1, 100);   // Enable data ready (bit 0) interrupt
-  
-//http://radiokot.ru/forum/viewtopic.php?f=2&t=136480
-//setFullScaleGyroRange(MPU9250_GYRO_FULL_SCALE_250DPS);
-//    setFullScaleAccelRange(MPU9250_FULL_SCALE_8G); 	
-	
-	UART_Send("DEBUG: MPU initliazed\r\n");
-}
-
 /********************************************************************************************************/
 
 /* USER CODE END 4 */
@@ -506,13 +439,17 @@ void MPU_Init(I2C_HandleTypeDef *hi2c) {
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
-
+	float temp;
+	int16_t data_accel[3];
+	int16_t data_gyro[3];
+	
   /* USER CODE BEGIN 5 */
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
 
   /* Infinite loop */
   for(;;)
   {
+		
 		BSP_LED_Toggle(LED3);
 	
 		if(mUartNewMessage)	
@@ -523,7 +460,16 @@ void StartDefaultTask(void const * argument)
 			continue;
 		}
 		
-    osDelay(100);
+		temp = MPU_get_temp( &hi2c1 );
+		MPU_get_accel( &hi2c1, data_accel );
+		MPU_get_gyro( &hi2c1, data_gyro );
+		
+		printf("%d,%d,%d;%d,%d,%d;%f\r\n", 
+			data_accel[0], data_accel[1], data_accel[2], 
+			data_gyro[0], data_gyro[1], data_gyro[2], 
+			temp);		
+		
+    osDelay(500);
   }
   /* USER CODE END 5 */ 
 }
