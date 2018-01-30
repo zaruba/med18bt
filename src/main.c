@@ -450,13 +450,13 @@ void MPU_Init(I2C_HandleTypeDef *hi2c) {
 		return;
 	}
 
-   // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-   t = 0x04;
-   HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, SMPLRT_DIV, 1, &t, 1, 100);   // Use a 200 Hz rate; the same rate set in CONFIG above
+	// Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
+	t = FLG_SMPLRT_DIV;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_SMPLRT_DIV, 1, &t, 1, MPU_I2C_TIMEOUT);   // Use a 200 Hz rate; the same rate set in CONFIG above
    
-   // Set gyroscope full scale range
-   // Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
-  HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_GYRO_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);    // get current GYRO_CONFIG register value
+	// Set gyroscope full scale range
+	// Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
+	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_GYRO_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);    // get current GYRO_CONFIG register value
 	
   t &= ~MASK_GYRO_CFG_SELFTEST; // Clear self-test bits [7:5]
 	t &= ~MASK_GYRO_CFG_FS; // Clear AFS bits [4:3]
@@ -467,20 +467,19 @@ void MPU_Init(I2C_HandleTypeDef *hi2c) {
   // Set accelerometer full-scale range configuration
   HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG register value
 	
-   // c = c & ~0xE0; // Clear self-test bits [7:5]
-  c = c & ~0x18;  // Clear AFS bits [4:3]
-  c = c | 0 << 3; // Set full scale range for the accelerometer  - 0=2g
+  t &= ~MASK_ACCEL_CFG_SELFTEST; // Clear self-test bits [7:5]
+  t &= ~MASK_ACCEL_CFG_FS;  // Clear AFS bits [4:3]
+  t |= FLG_ACCEL_CFG_FS_2G; // Set full scale range for the accelerometer  - 0=2g
   HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG register value
    
-	 
-	 
-   // Set accelerometer sample rate configuration
-   // It is possible to get a 4 kHz sample rate from the accelerometer by choosing 1 for
-   // accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz
-    HAL_I2C_Mem_Read(&hi2c1, MPU9250_ADDRESS_R, ACCEL_CONFIG2, 1, &c, 6, 100);   // get current ACCEL_CONFIG2 register value
-  c = c & ~0x0F; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0]) 
-  c = c | 0x03;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
-   HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, ACCEL_CONFIG2, 1, &c, 1, 100);   // Write new ACCEL_CONFIG2 register value
+  // Set accelerometer sample rate configuration
+  // It is possible to get a 4 kHz sample rate from the accelerometer by choosing 1 for
+  // accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz
+	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG2, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG2 register value
+
+	t &= ~MASK_GYRO_CFG2_FCHOICE; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0]) 
+  t |= FLG_ACCEL_CFG_DLPFCFG;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG2, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG2 register value
    
    // The accelerometer, gyro, and thermometer are set to 1 kHz sample rates,
    // but all these rates are further reduced by a factor of 5 to 200 Hz because of the SMPLRT_DIV setting
@@ -493,11 +492,9 @@ void MPU_Init(I2C_HandleTypeDef *hi2c) {
   //R=0x01;
    //HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, INT_ENABLE, 1, &R, 1, 100);   // Enable data ready (bit 0) interrupt
   
-
-
-http://radiokot.ru/forum/viewtopic.php?f=2&t=136480
-setFullScaleGyroRange(MPU9250_GYRO_FULL_SCALE_250DPS);
-    setFullScaleAccelRange(MPU9250_FULL_SCALE_8G); 	
+//http://radiokot.ru/forum/viewtopic.php?f=2&t=136480
+//setFullScaleGyroRange(MPU9250_GYRO_FULL_SCALE_250DPS);
+//    setFullScaleAccelRange(MPU9250_FULL_SCALE_8G); 	
 	
 	UART_Send("DEBUG: MPU initliazed\r\n");
 }
