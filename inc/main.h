@@ -67,6 +67,10 @@
 #define LD5_GPIO_Port GPIOD
 #define LD6_Pin GPIO_PIN_15
 #define LD6_GPIO_Port GPIOD
+#define MPS_ME1_TX_Pin GPIO_PIN_5
+#define MPS_ME1_TX_GPIO_Port GPIOD
+#define MPS_ME1_RX_Pin GPIO_PIN_6
+#define MPS_ME1_RX_GPIO_Port GPIOD
 #define USART1_PB6_TX_Pin GPIO_PIN_6
 #define USART1_PB6_TX_GPIO_Port GPIOB
 #define USART1_PB6_RX_Pin GPIO_PIN_7

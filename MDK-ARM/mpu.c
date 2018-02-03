@@ -1,7 +1,5 @@
 #include "mpu.h"
 
-#include "stm32f4xx_hal.h"
-
 // TEMP_degC   = ((TEMP_OUT – RoomTemp_Offset)/Temp_Sensitivity) + 21degC 
 // Where Temp_degC is the temperature in degrees C measured by the temperature sensor.  
 // TEMP_OUT is the actual output of the temperature sensor. 
@@ -40,49 +38,65 @@ void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination) {
 
 }
 
-void MPU_Init(I2C_HandleTypeDef *hi2c) {
+HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c) {
 	HAL_StatusTypeDef res;
 	uint8_t t;
 	
+	// =========================================================================================
+	// Setup ACCEL/GYRO/TEMP MPU9250
+	// =========================================================================================
+
 	// get WHOAMI ID
-	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_WHOAMI, 1, &t, 8, MPU_I2C_TIMEOUT);
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG117_ADDR, 1, &t, 8, MPU_I2C_TIMEOUT);
 	if (res != HAL_OK) {
 		printf("ERROR: Can't get MPU ID (I2C)\r\n");
-		return;
+		return HAL_ERROR;
 	}
-	
-	if ( (t&0xff) != 0x71) {
-		printf("WARNING: device has invalid device ID=%x (I2C)\r\n", (t&0xff));
+	if ( (t&0xff) != MPU9250_REG117_WAI_ID) {
+		printf("ERROR: device has invalid device ID=0x%x, default=0x%x (I2C)\r\n", (t&0xff), MPU9250_REG117_WAI_ID);
+		return HAL_ERROR;
 	}
 		
-	// Clear sleep mode bit (6), reset and enable all sensors 
-	// t = (FLG_PWR_MGMT_1_DEFAULT | FLG_PWR_MGMT_1_CLKSEL_PLL_AUTO);
-	t = FLG_PWR_MGMT_1_DEFAULT; // = FLG_PWR_MGMT_1_CLKSEL_INTERNAL_20MHz
-	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_PWR_MGMT_1, 1, &t, 1, MPU_I2C_TIMEOUT);
+	// PWR_MGMT_1:
+	// Perform hard reset
+	t = MPU9250_REG107_H_RESET; 
+	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG107_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
 	if (res != HAL_OK) {
-		printf("ERROR: Can't init MPU (I2C)\r\n");
-		return;
+		printf("ERROR: I2C failed: hard reset: PWR_MGMT_1 (107)\r\n");
+		return HAL_ERROR;
 	}
-	printf("DEBUG: PWR_MGMT_1: 0x%x\r\n", t);
-	
-	HAL_Delay(50);
+	printf("DEBUG: PWR_MGMT_1 (107): hard reset: 0x%x\r\n", t);
+	HAL_Delay(100);
 
+	// Clear sleep mode bit (6), reset and enable all sensors 
+	t = MPU9250_REG107_CLKSEL_DEFAULT; 
+	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG107_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (res != HAL_OK) {
+		printf("ERROR: I2C failed: PWR_MGMT_1 (107)\r\n");
+		return HAL_ERROR;
+	}
+	printf("DEBUG: PWR_MGMT_1 (107): setup: 0x%x\r\n", t);
+	HAL_Delay(10);
+	
+	// ---------------------------------
 	// Configure Gyro and Accelerometer
+	// ---------------------------------
+
 	// Disable FSYNC and set accelerometer and gyro bandwidth to 44 and 42 Hz, respectively;
 	// DLPF_CFG = bits 2:0 = 010; this sets the sample rate at 1 kHz for both
 	// Maximum delay is 4.9 ms which is just over a 200 Hz maximum rate
-	t = FLG_CONFIG_EXT_SYNC_SET_DISABLED | FLG_CONFIG_DLPF_CFG_41HZ;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, FLG_CONFIG_DLPF_CFG_41HZ, 1, &t, 1, MPU_I2C_TIMEOUT);
+	t = MPU9250_REG26_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG26_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
 	if (res != HAL_OK) {
 		printf("ERROR: Can't init MPU: DLPF_CFG (I2C)\r\n");
-		return;
+		return HAL_ERROR;
 	}
-	printf("DEBUG: DLPF_CFG: 0x%x\r\n", t);
+	printf("DEBUG: DLPF_CFG (26): 0x%x\r\n", t);
 
 	// Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-	t = FLG_SMPLRT_DIV;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_SMPLRT_DIV, 1, &t, 1, MPU_I2C_TIMEOUT);   // Use a 200 Hz rate; the same rate set in CONFIG above
-	printf("DEBUG: SMPLRT_DIV: 0x%x\r\n", t);
+	t = MPU9250_REG25_SMPLRT_DIV_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG25_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // Use a 200 Hz rate; the same rate set in CONFIG above
+	printf("DEBUG: SMPLRT_DIV (25): 0x%x\r\n", t);
    
 	// Set gyroscope full scale range
 	// Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
@@ -113,36 +127,93 @@ void MPU_Init(I2C_HandleTypeDef *hi2c) {
   t |= FLG_ACCEL_CFG_DLPFCFG;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
 	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG2, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG2 register value
 	printf("DEBUG: ACCEL_CFG2: 0x%x\r\n", t);
-   
-   // The accelerometer, gyro, and thermometer are set to 1 kHz sample rates,
-   // but all these rates are further reduced by a factor of 5 to 200 Hz because of the SMPLRT_DIV setting
 
-   // Configure Interrupts and Bypass Enable
-  // Set interrupt pin active high, push-pull, and clear on read of INT_STATUS, enable I2C_BYPASS_EN so additional chips
-  // can join the I2C bus and all can be controlled by the Arduino as master
-   //R=0x22;
-   //HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, INT_PIN_CFG, 1, &R, 1, 100);
-  //R=0x01;
-   //HAL_I2C_Mem_Write(&hi2c1, MPU9250_ADDRESS_W, INT_ENABLE, 1, &R, 1, 100);   // Enable data ready (bit 0) interrupt
-  
-//http://radiokot.ru/forum/viewtopic.php?f=2&t=136480
-//setFullScaleGyroRange(MPU9250_GYRO_FULL_SCALE_250DPS);
-//    setFullScaleAccelRange(MPU9250_FULL_SCALE_8G); 	
-	MPU_Init_MAGN(hi2c);
+	// =========================================================================================
+	// Setup MAGN
+	// =========================================================================================
+
+	// Disable by-pass mode (INT_PIN_CFG @55)
+	// Disconnects the bypass on EDA/ECL if it was enabled
+	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG55_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT);
+	t = t & ~MPU9250_REG55_BYPASS_EN;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG55_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: INT_PIN_CFG (55): 0x%x\r\n", t);
+
+	// Enables the I2C Master within the MPU (USER_CTRL @106)
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG106_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT); 
+	t = t | MPU9250_REG106_FIFO_EN;
+	t = t | MPU9250_REG106_I2C_MST_EN;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: USER_CTRL (106): 0x%x\r\n", t);
+
+	// Setup I2C MST 
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG36_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT); 
+	// clear MULT_MST_EN [7] - Unless there are multiple masters hooked up to that bus
+	t = t & ~MPU9250_REG36_MULT_MST_EN;
+	// clear SLV3_FIFO_EN [5] - Unless you are using FIFO for Slave3 requested data 
+	t = t & ~MPU9250_REG36_SLV_3_FIFO_EN;
+	// enable WAIT_FOR_ES [6] - Causes the data ready interrupt to wait for the external data
+	t = t | MPU9250_REG36_WAIT_FOR_ES;
+	// enable I2C_P_NSR [4] - When transitioning slaves; issue a full stop, then a start
+	t = t | MPU9250_REG36_I2C_MST_P_NSR;
+	// I2C_MST_CLK = 400kHz 
+	t = t | MPU9250_REG36_I2C_MST_CLK_400KHZ;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG36_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: I2C_MST_CTRL(%d): 0x%x\r\n", MPU9250_REG36_ADDR, t);
+
+	// ---------------------------------
+	// REG0 - WHO AM I
+	// ---------------------------------
 	
-	printf("DEBUG: MPU initliazed\r\n");
+	// Setup I2C slave #0
+	t = MPU9250_REG37_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG37_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: I2C_ID_0(%d): 0x%x\r\n", MPU9250_REG37_ADDR, t);
+
+	t = MPU9250_REG38_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG38_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: I2C_SLV0_REG(%d): 0x%x\r\n", MPU9250_REG38_ADDR, t);
+	
+	t = MPU9250_REG39_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG39_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: I2C_SLV0_CTRL(%d): 0x%x\r\n", MPU9250_REG39_ADDR, t);
+	
+	HAL_Delay(10);
+		
+	// Reading 0x0 from slave device
+	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG73_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: AK8963 found (73): EXT_SENS_DATA_00: ID=0x%x\r\n", t);
+
+	if ( (t&0xff) != AK8963_REG0_WAI_ID) {
+		printf("ERROR: device has invalid device ID=0x%x, default=0x%x (I2C)\r\n", (t&0xff), AK8963_REG0_WAI_ID);
+		return HAL_ERROR;
+	}
+	
+	
+	// =========================================================================================
+	// Setup MPU9250 - FIFO
+	// =========================================================================================
+	t = MPU9250_REG35_DEFAULT;
+	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG35_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
+	
+	
+	printf("DEBUG: MPU initliazed sucessully\r\n");
+	return HAL_OK;
 }
 
 //
 
-void MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {
+HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {
   
-	uint8_t R;
-	uint8_t rawData[3];  // x/y/z gyro calibration data stored here
+	//uint8_t t;
+//	uint8_t rawData[3];  // x/y/z gyro calibration data stored here
+	//HAL_StatusTypeDef res;
 
+/*	
 	// First extract the factory calibration for each magnetometer axis
 	R=0x00;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, 100);    // Power down magnetometer 
+	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, MPU_I2C_TIMEOUT);    // Power down magnetometer 
 	HAL_Delay(10);
 	
 	R=0x0F;
@@ -153,9 +224,11 @@ void MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {
 	destination[0] =  (float)(rawData[0] - 128)/256.0f + 1.0f;   // Return x-axis sensitivity adjustment values, etc.
 	destination[1] =  (float)(rawData[1] - 128)/256.0f + 1.0f; 
 	destination[2] =  (float)(rawData[2] - 128)/256.0f + 1.0f;
+	
 	R=0x00;
 	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, 100);    // Power down magnetometer 
 	HAL_Delay(10);
+	
 	// Configure the magnetometer for continuous read and highest resolution
 	// set Mscale bit 4 to 1 (0) to enable 16 (14) bit resolution in CNTL register,
 	// and enable continuous mode data acquisition Mmode (bits [3:0]), 0010 for 8 Hz and 0110 for 100 Hz sample rates
@@ -166,10 +239,13 @@ void MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {
 	R=0x40;
 	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_ASTC, 1, &R, 1, 100); // set self-test
 	//   
+*/
+	return HAL_OK;
 }
 //
 void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination) {
 
+/*	
 	uint8_t rawData[7];  // x/y/z gyro register data, ST2 register stored here, must read ST2 at end of data acquisition
 	uint8_t c;
 
@@ -186,5 +262,5 @@ void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination) {
 			destination[2] = (int16_t)(((int16_t)rawData[5] << 8) | rawData[4]) ;
 		}
 	}
-
+*/
 }

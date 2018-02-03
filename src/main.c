@@ -54,12 +54,14 @@
 #include "string.h"
 #include "discovery.h"
 #include "mpu.h"
+#include "lpms-me1.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart2;
 
 osThreadId bltTaskHandle;
 
@@ -91,12 +93,11 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_USART2_UART_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-void MPU_Init( I2C_HandleTypeDef * hi2c );
-
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -134,11 +135,13 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   MX_I2C1_Init();
+  //MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 	
 	printf("DEBUG: Application started\r\n");
 
-	MPU_Init( &hi2c1 );
+//	MPU_Init( &hi2c1 );
+//	LPMS_ME1_Init( &hi2c1 );
 	
 	BSP_LED_Init(LED3);
 	BSP_LED_Init(LED4);
@@ -281,6 +284,25 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    _Error_Handler(__FILE__, __LINE__);
+  }
+
+}
+
+/* USART2 init function */
+static void MX_USART2_UART_Init(void)
+{
+
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 921600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
@@ -439,12 +461,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
+
+  /* USER CODE BEGIN 5 */
 	float temp;
 	int16_t data_accel[3];
 	int16_t data_gyro[3];
-	
-  /* USER CODE BEGIN 5 */
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
+	float data_euler[3];
 
   /* Infinite loop */
   for(;;)
@@ -460,14 +483,18 @@ void StartDefaultTask(void const * argument)
 			continue;
 		}
 		
-		temp = MPU_get_temp( &hi2c1 );
-		MPU_get_accel( &hi2c1, data_accel );
-		MPU_get_gyro( &hi2c1, data_gyro );
-		
+//		temp = MPU_get_temp( &hi2c1 );
+//		MPU_get_accel( &hi2c1, data_accel );
+//		MPU_get_gyro( &hi2c1, data_gyro );
+
+/*		
 		printf("%d,%d,%d;%d,%d,%d;%f\r\n", 
 			data_accel[0], data_accel[1], data_accel[2], 
 			data_gyro[0], data_gyro[1], data_gyro[2], 
 			temp);		
+*/
+		if (LPMS_ME1_GetEuler( &hi2c1, data_euler ) == HAL_OK)
+			printf("%f,%f,%f\r\n", data_euler[0], data_euler[1], data_euler[2]);
 		
     osDelay(500);
   }

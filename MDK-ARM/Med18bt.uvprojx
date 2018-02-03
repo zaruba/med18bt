@@ -335,7 +335,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F401xC</Define>
               <Undefine></Undefine>
-              <IncludePath>../Inc;             ../Drivers/STM32F4xx_HAL_Driver/Inc;             ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;             ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;             ../Drivers/CMSIS/Device/ST/STM32F4xx/Include;             ../Middlewares/Third_Party/FreeRTOS/Source/include;             ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;             ../Drivers/CMSIS/Include</IncludePath>
+              <IncludePath>../Inc;                  ../Drivers/STM32F4xx_HAL_Driver/Inc;                  ../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;                  ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;                  ../Drivers/CMSIS/Device/ST/STM32F4xx/Include;                  ../Middlewares/Third_Party/FreeRTOS/Source/include;                  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;                  ../Drivers/CMSIS/Include</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -518,6 +518,11 @@
               <FileName>stdout_user.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\stdout_user.c</FilePath>
+            </File>
+            <File>
+              <FileName>lpms-me1.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\lpms-me1.c</FilePath>
             </File>
           </Files>
         </Group>
