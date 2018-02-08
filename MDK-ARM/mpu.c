@@ -1,5 +1,11 @@
 #include "mpu.h"
 
+// WIRING:
+//
+// PB8 grey ---- SCL
+// PB9 white --- SDA
+//
+
 // TEMP_degC   = ((TEMP_OUT – RoomTemp_Offset)/Temp_Sensitivity) + 21degC 
 // Where Temp_degC is the temperature in degrees C measured by the temperature sensor.  
 // TEMP_OUT is the actual output of the temperature sensor. 
@@ -201,7 +207,110 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c) {
 	printf("DEBUG: MPU initliazed sucessully\r\n");
 	return HAL_OK;
 }
+//
 
+int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c ) {
+	HAL_StatusTypeDef res;
+	uint8_t t;
+	int16_t t_fifo_cnt = 0;
+
+	// Read Register 114 and 115 – FIFO Count Registers 
+	
+	// FIFO_CNT[12:8] 4 bits
+	// High Bits, count indicates the number of written bytes in the FIFO. 
+	// Reading this byte latches the data for both FIFO_COUNTH, and FIFO_COUNTL. 
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, 114, 1, &t, 1, MPU_I2C_TIMEOUT); 	
+	if (res != HAL_OK) {
+		return -1;
+	}
+	t_fifo_cnt = (uint16_t) (t & 0x0F);
+
+	// FIFO_CNT[7:0] 
+	// Low Bits, count indicates the number of written bytes in the  FIFO.
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, 115, 1, &t, 1, MPU_I2C_TIMEOUT); 	
+	if (res != HAL_OK) {
+		return -1;
+	}
+	t_fifo_cnt = (t_fifo_cnt << 8) + (uint16_t)(t & 0xFF);
+	
+	// it has 512 bytes buffer only
+	
+	printf("DEBUG: FIFO: bytes available: %d\r\n", t_fifo_cnt);
+	
+	return t_fifo_cnt;
+}
+//	
+
+HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c ) {
+	HAL_StatusTypeDef res;
+	uint8_t t;
+	
+	// Register 106 – User Control 
+	// [2]  FIFO_RST 
+	// 1 – Reset FIFO module. Reset is asynchronous.  This bit auto clears after  one clock cycle. 
+  HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG register value
+  t |= MPU9250_REG106_FIFO_RST;
+  HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG register value
+  	
+	return HAL_OK;
+}
+//
+
+
+HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c ) {
+	HAL_StatusTypeDef res;
+	uint8_t t;
+	uint16_t data[MPU9250_FIFO_FRAME_SIZE];
+	
+		int16_t t_fifo_cnt = MPU_GetFifoCnt( hi2c );
+		if (t_fifo_cnt < 0) {
+			printf("ERROR: MPU_GetData: can't read data\r\n");
+			return HAL_ERROR;
+		}	
+		
+
+		if (t_fifo_cnt < MPU9250_FIFO_FRAME_SIZE) {
+			printf("DEBUG: need more data to read: %d of %d bytes available\r\n", t_fifo_cnt, MPU9250_FIFO_FRAME_SIZE);
+			return HAL_OK;
+		}
+					
+	
+	// Register 116 – FIFO Read Write
+	// Read/Write command provides Read or Write operation for  the FIFO.  
+	// Description: 
+	// This register is used to read and write data from the FIFO buffer.  
+	// Data is written to the FIFO in order of register number (from lowest to highest). If all the FIFO enable 
+	// flags  (see  below)  are  enabled  and  all  External  Sensor  Data  registers  (Registers  73  to  96)  are 
+	// associated with a Slave device, the contents of registers 59 through 96 will be written in order at the 
+	// Sample Rate. 
+	// The contents of the sensor data registers (Registers 59 to 96) are written into the FIFO buffer when 
+	// their corresponding FIFO enable flags are set to 1 in FIFO_EN (Register 35). An additional flag for 
+	// the sensor data registers associated with I2C Slave 3 can be found in I2C_MST_CTRL (Register 36).  
+	// If the FIFO buffer has overflowed, the status bit FIFO_OFLOW_INT is automatically set to 1. This bit 
+	// is located in INT_STATUS (Register 58). When the FIFO buffer has overflowed, the oldest data will 
+	// be lost and new data will be written to the FIFO unless register 26 CONFIG, bit[6] FIFO_MODE = 1.
+	// If the FIFO buffer is empty, reading this register will return the last byte that was previously read from 
+	// the FIFO until new data is available. The user should check FIFO_COUNT to ensure that the FIFO 
+	// buffer is not read when empty. 
+
+	for (int i = 0; i < MPU9250_FIFO_FRAME_SIZE; i++) {
+		res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, 116, 1, &t, 1, MPU_I2C_TIMEOUT); 	
+		if (res != HAL_OK) {
+			return HAL_ERROR;
+		}
+		
+		data[i] = t;
+	}
+	
+	// ACCE: x[0:1] y[2:3] z[4:5]
+	// TEMP: [6:7]
+	uint16_t temp = (((uint16_t)data[6]) << 8 | data[7]) ;  // Turn the MSB and LSB into a 16-bit value
+	// GYRO: x[8:9] y[10:11] z[12:13]
+	
+	printf("DEBUG: Temp %f\r\n", temp / 100.0f);
+
+	return HAL_OK;
+}
 //
 
 HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {

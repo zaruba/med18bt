@@ -134,13 +134,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  MX_I2C1_Init();
-  //MX_USART2_UART_Init();
+  MX_I2C1_Init(); // MPU9250
+  //MX_USART2_UART_Init(); // LPMS-ME1
   /* USER CODE BEGIN 2 */
 	
 	printf("DEBUG: Application started\r\n");
 
-//	MPU_Init( &hi2c1 );
+	MPU_Init( &hi2c1 );
 //	LPMS_ME1_Init( &hi2c1 );
 	
 	BSP_LED_Init(LED3);
@@ -483,20 +483,34 @@ void StartDefaultTask(void const * argument)
 			continue;
 		}
 		
+		if (MPU_GetFifoFrameData( &hi2c1 ) != HAL_OK) {
+			// MPU reset required
+		}
+
+		// reset FIFO
+		if (MPU_ResetFifo( &hi2c1 ) != HAL_OK) {
+			// MPU reset required
+		}
+		
+		
 //		temp = MPU_get_temp( &hi2c1 );
 //		MPU_get_accel( &hi2c1, data_accel );
 //		MPU_get_gyro( &hi2c1, data_gyro );
 
+		
+		
 /*		
 		printf("%d,%d,%d;%d,%d,%d;%f\r\n", 
 			data_accel[0], data_accel[1], data_accel[2], 
 			data_gyro[0], data_gyro[1], data_gyro[2], 
 			temp);		
 */
-		if (LPMS_ME1_GetEuler( &hi2c1, data_euler ) == HAL_OK)
-			printf("%f,%f,%f\r\n", data_euler[0], data_euler[1], data_euler[2]);
+	
+// LPMS ME1		
+//		if (LPMS_ME1_GetEuler( &hi2c1, data_euler ) == HAL_OK)
+//			printf("%f,%f,%f\r\n", data_euler[0], data_euler[1], data_euler[2]);
 		
-    osDelay(500);
+    osDelay(100);
   }
   /* USER CODE END 5 */ 
 }

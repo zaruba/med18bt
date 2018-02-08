@@ -8,6 +8,9 @@ extern void MPU_get_accel(I2C_HandleTypeDef *hi2c, int16_t *destination);
 extern void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination);
 extern HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c);
 extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
+extern int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c );
+extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c );
+extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
 
 #define MPU_I2C_TIMEOUT 50 // in ms
 
@@ -16,6 +19,11 @@ extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 
 #define AK8963_ADDRESS_W 0x0C
 #define AK8963_ADDRESS_R AK8963_ADDRESS_W
+
+#define MPU9250_FIFO_SIZE 512
+// See register 35
+// Contains: Temp (2) + 
+#define MPU9250_FIFO_FRAME_SIZE (6+2+6+6) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (3*2?)
 
 //  Register 25 – Sample Rate Divider 
 // -------------------------------------------------
@@ -29,7 +37,7 @@ extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 // This is the update rate of sensor register. 
 // SAMPLE_RATE=  Internal_Sample_Rate / (1 + SMPLRT_DIV) 
 // Data should be sampled at or above sample rate; SMPLRT_DIV is only used for1kHz internal sampling.
-#define MPU9250_REG25_SMPLRT_DIV_DEFAULT 0x04
+#define MPU9250_REG25_SMPLRT_DIV_DEFAULT 0x4
 
 // Register 26 – Configuration 
 // -------------------------------------------------
@@ -39,14 +47,15 @@ extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 // FIFO_MODE [6]
 // When set to ‘1’, when the fifo is full, additional writes will not be written to fifo.  
 // When set to ‘0’, when the fifo is full, additional writes will be written to the fifo, replacing the oldest data. 
-#define MPU9250_REG26_FIFO_OVERWRITE (0x00 << 6)
+#define MPU9250_REG26_FIFO_NOT_OVERWRITE (0x1 << 6)
+#define MPU9250_REG26_FIFO_OVERWRITE (0x0 << 6)
 
 // DLPF_CFG [2:0]
 // For the DLPF to be used, fchoice[1:0] must be set to 2’b11, fchoice_b[1:0] is  2’b00. See table 3 below. 
 // GYRO: bandwidth = 41 hz
 // TEMP: bandwidth = 42 hz 
-#define MPU9250_REG26_DLPF_CFG 0x03
-#define MPU9250_REG26_DEFAULT (MPU9250_REG26_FIFO_OVERWRITE | MPU9250_REG26_DLPF_CFG)
+#define MPU9250_REG26_DLPF_CFG 0x3
+#define MPU9250_REG26_DEFAULT (MPU9250_REG26_FIFO_NOT_OVERWRITE | MPU9250_REG26_DLPF_CFG)
 
 
 // Register 35 – FIFO Enable 
@@ -68,7 +77,8 @@ extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 // 1 – write EXT_SENS_DATA registers associated to SLV_0 (as determined by 
 // I2C_SLV0_CTRL)  to the FIFO at the sample rate; 
 #define MPU9250_REG35_SLV_0 (0x1)
-#define MPU9250_REG35_DEFAULT (MPU9250_REG35_TEMP_OUT|MPU9250_REG35_GYRO_XOUT|MPU9250_REG35_GYRO_YOUT|MPU9250_REG35_GYRO_ZOUT|MPU9250_REG35_ACCEL)
+//#define MPU9250_REG35_DEFAULT (MPU9250_REG35_TEMP_OUT|MPU9250_REG35_GYRO_XOUT|MPU9250_REG35_GYRO_YOUT|MPU9250_REG35_GYRO_ZOUT|MPU9250_REG35_ACCEL)
+#define MPU9250_REG35_DEFAULT (MPU9250_REG35_TEMP_OUT|MPU9250_REG35_GYRO_XOUT|MPU9250_REG35_GYRO_YOUT|MPU9250_REG35_GYRO_ZOUT|MPU9250_REG35_ACCEL|MPU9250_REG35_SLV_0)
 
 // Register 36 – I2C Master Control 
 // -------------------------------------------------
@@ -315,6 +325,11 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // 1 – Enable the I2C Master I/F module; pins ES_DA and ES_SCL are isolated from pins SDA/SDI and SCL/ SCLK. 
 // 0 – Disable I2C Master I/F module; pins ES_DA and ES_SCL are logically driven by pins SDA/SDI and SCL/ SCLK. 
 #define MPU9250_REG106_I2C_MST_EN (0x1 << 5)
+// [2]  FIFO_RST 
+// 1 – Reset FIFO module. Reset is asynchronous.  This bit auto clears after  one clock cycle. 
+#define MPU9250_REG106_FIFO_RST (0x1 << 2)
+
+
 
 
 // Register 107 – Power Management 1 
