@@ -140,7 +140,6 @@ int main(void)
 	
 	printf("DEBUG: Application started\r\n");
 
-	MPU_Init( &hi2c1 );
 //	LPMS_ME1_Init( &hi2c1 );
 	
 	BSP_LED_Init(LED3);
@@ -461,56 +460,70 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
-
   /* USER CODE BEGIN 5 */
-	float temp;
-	int16_t data_accel[3];
-	int16_t data_gyro[3];
+	uint8_t mpu_init_required = 1;
+	int16_t accel_data[3], gyro_data[3];
+	float magn_data[3];
+	float temp_data;
+
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
-	float data_euler[3];
 
   /* Infinite loop */
   for(;;)
   {
-		
 		BSP_LED_Toggle(LED3);
+		
+		if (mpu_init_required) {
+			
+			if (MPU_Init( &hi2c1 ) != HAL_OK) {
+				printf("ERROR: can't init MPU\r\n");
+				HAL_Delay(500);
+				continue;
+			}
+			
+			mpu_init_required = 0;
+		}
 	
 		if(mUartNewMessage)	
 		{
-			UART_CommandProcessor();
-			mUartNewMessage  = 0;
-			
-			continue;
+//			UART_CommandProcessor();
+//			mUartNewMessage  = 0;
 		}
 		
-		if (MPU_GetFifoFrameData( &hi2c1 ) != HAL_OK) {
-			// MPU reset required
-		}
-
 		// reset FIFO
 		if (MPU_ResetFifo( &hi2c1 ) != HAL_OK) {
 			// MPU reset required
+			mpu_init_required = 1;
+			continue;
 		}
-		
-		
-//		temp = MPU_get_temp( &hi2c1 );
-//		MPU_get_accel( &hi2c1, data_accel );
-//		MPU_get_gyro( &hi2c1, data_gyro );
-
-		
-		
-/*		
-		printf("%d,%d,%d;%d,%d,%d;%f\r\n", 
-			data_accel[0], data_accel[1], data_accel[2], 
-			data_gyro[0], data_gyro[1], data_gyro[2], 
-			temp);		
-*/
 	
-// LPMS ME1		
-//		if (LPMS_ME1_GetEuler( &hi2c1, data_euler ) == HAL_OK)
-//			printf("%f,%f,%f\r\n", data_euler[0], data_euler[1], data_euler[2]);
+		HAL_Delay(10);
 		
-    osDelay(100);
+		if (MPU_GetFifoFrameData( &hi2c1, accel_data, gyro_data, magn_data, &temp_data ) != HAL_OK) {
+			// MPU reset required
+			mpu_init_required = 1;
+			continue;
+		}
+
+		printf("FIFO: %f %f %f\r\n", magn_data[0], magn_data[1], magn_data[2]);
+	
+		// Output testing data
+		
+		//float temp = MPU_get_temp( &hi2c1 );
+		//printf("DEBUG: Temp %f -- fifo: %f \r\n", temp, temp_data);
+
+				//int16_t testdata[3];
+
+		//MPU_get_accel( &hi2c1, testdata );
+		//MPU_get_gyro( &hi2c1, testdata );
+		
+		//printf("DATA1: %d %d %d\r\n", accel_data[0], accel_data[1], accel_data[2]);
+		//printf("DATA1: %d %d %d\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+
+		//MPU_get_magn( &hi2c1, testdata);
+		//printf("DRCT: %d %d %d\r\n", testdata[0], testdata[1], testdata[2]);
+		
+    osDelay(5000);
   }
   /* USER CODE END 5 */ 
 }

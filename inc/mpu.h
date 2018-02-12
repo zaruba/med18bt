@@ -6,11 +6,16 @@
 extern float MPU_get_temp(I2C_HandleTypeDef *hi2c);
 extern void MPU_get_accel(I2C_HandleTypeDef *hi2c, int16_t *destination);
 extern void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination);
+extern void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination);
 extern HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c);
 extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 extern int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c );
-extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c );
+extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_data, int16_t *gyro_data, float *magn_data, float *temp );
 extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
+
+extern HAL_StatusTypeDef AK8963_SL0_Setup(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t bytes_to_read);
+extern HAL_StatusTypeDef AK8963_SL0_Read(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t *data, uint8_t bytes_to_read);
+extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t data);
 
 #define MPU_I2C_TIMEOUT 50 // in ms
 
@@ -23,7 +28,7 @@ extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
 #define MPU9250_FIFO_SIZE 512
 // See register 35
 // Contains: Temp (2) + 
-#define MPU9250_FIFO_FRAME_SIZE (6+2+6+6) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (3*2?)
+#define MPU9250_FIFO_FRAME_SIZE (6+2+6+7) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (3*2 + 1 status byte)
 
 //  Register 25 – Sample Rate Divider 
 // -------------------------------------------------
@@ -77,7 +82,6 @@ extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
 // 1 – write EXT_SENS_DATA registers associated to SLV_0 (as determined by 
 // I2C_SLV0_CTRL)  to the FIFO at the sample rate; 
 #define MPU9250_REG35_SLV_0 (0x1)
-//#define MPU9250_REG35_DEFAULT (MPU9250_REG35_TEMP_OUT|MPU9250_REG35_GYRO_XOUT|MPU9250_REG35_GYRO_YOUT|MPU9250_REG35_GYRO_ZOUT|MPU9250_REG35_ACCEL)
 #define MPU9250_REG35_DEFAULT (MPU9250_REG35_TEMP_OUT|MPU9250_REG35_GYRO_XOUT|MPU9250_REG35_GYRO_YOUT|MPU9250_REG35_GYRO_ZOUT|MPU9250_REG35_ACCEL|MPU9250_REG35_SLV_0)
 
 // Register 36 – I2C Master Control 
@@ -181,14 +185,14 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // I2C_ID_0 [6:0] - Physical address of I2C slave 0 
 
 // Register 37 - I2C_SLV0_ADDR
-#define MPU9250_REG37_ADDR 37
+#define MPU9250_SLAVE0_BASE 37
 #define MPU9250_REG37_I2C_SLV0_RNW_READ (0x1 << 7)  // READ MODE
 #define MPU9250_REG37_I2C_ID_0 (AK8963_ADDRESS_R)
-#define MPU9250_REG37_DEFAULT (MPU9250_REG37_I2C_ID_0 | MPU9250_REG37_I2C_SLV0_RNW_READ)
+#define MPU9250_REG37_AK8963_READ (MPU9250_REG37_I2C_ID_0 | MPU9250_REG37_I2C_SLV0_RNW_READ)
+#define MPU9250_REG37_AK8963_WRITE (MPU9250_REG37_I2C_ID_0)
 
 // Register 38 - I2C_SLV0_REG  
-#define MPU9250_REG38_ADDR 38
-#define MPU9250_REG38_DEFAULT  (AK8963_REG0_ADDR)
+#define MPU9250_REG38_WAI_REG AK8963_REG0_ADDR  // WHO AM I @ AK8963
 
 // Register 39 - I2C_SLV0_CTRL 
 #define MPU9250_REG39_ADDR 39
@@ -197,8 +201,83 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // EXT_SENS_DATA_00 for I2C slave 0. 
 #define MPU9250_REG39_I2C_SLV0_EN (0x1 << 7)
 // I2C_SLV0_LENG[3:0] 
-#define MPU9250_REG39_I2C_SLV0_LENG 1 // bytes to read
-#define MPU9250_REG39_DEFAULT (MPU9250_REG39_I2C_SLV0_EN | MPU9250_REG39_I2C_SLV0_LENG)
+#define MPU9250_REG39_ENABLE_1b (MPU9250_REG39_I2C_SLV0_EN | 1)
+#define MPU9250_REG39_ENABLE_7b (MPU9250_REG39_I2C_SLV0_EN | 7)
+#define MPU9250_REG39_DISABLE 0x0 // set 7 bit to zero
+
+// Registers 40 to 42 – I2C Slave 1 Control 
+// -------------------------------------------------
+
+// Register 40 - I2C_SLV1_CTRL 
+#define MPU9250_REG40_ADDR 40
+#define MPU9250_REG40_I2C_SLV1_RNW_READ (0x1 << 7)  // READ MODE
+#define MPU9250_REG40_I2C_ID_1 (AK8963_ADDRESS_R)
+#define MPU9250_REG40_AK8963_READ (MPU9250_REG40_I2C_ID_1 | MPU9250_REG40_I2C_SLV1_RNW_READ)
+#define MPU9250_REG40_AK8963_WRITE (MPU9250_REG40_I2C_ID_1)
+
+// Register 41 - I2C_SLV1_REG  
+#define MPU9250_REG41_ADDR 41
+#define MPU9250_REG41_DEFAULT 0x3 // X-Low, X-High, Y-Low etc
+
+// Register 42 - I2C_SLV1_CTRL 
+#define MPU9250_REG42_ADDR 42
+// 1 – Enable reading data from this slave at the sample rate and storing 
+// data at the first available EXT_SENS_DATA register, which is always 
+// EXT_SENS_DATA_00 for I2C slave 0. 
+#define MPU9250_REG42_I2C_SLV1_EN (0x1 << 7)
+// I2C_SLV0_LENG[3:0] 
+#define MPU9250_REG42_I2C_SLV1_LENG 6 // bytes to read
+
+#define MPU9250_REG42_DISABLE 0x0 // set 7 bit to zero
+#define MPU9250_REG42_ENABLE (MPU9250_REG42_I2C_SLV1_EN | MPU9250_REG42_I2C_SLV1_LENG)
+#define MPU9250_REG42_DISABLE 0x0
+
+
+// Registers 43 to 45 – I2C Slave 2 Control 
+// -------------------------------------------------
+
+// Register 45 - I2C_SLV2_CTRL 
+#define MPU9250_REG45_ADDR 45
+#define MPU9250_REG45_DISABLE 0x0
+
+
+// Registers 46 to 48 – I2C Slave 3 Control 
+// -------------------------------------------------
+#define MPU9250_REG46_ADDR 46
+
+// Register 46 - I2C_SLV3_ADDR 
+#define MPU9250_REG46_I2C_SLV3_RNW (0x1 << 7) // read mode
+#define MPU9250_REG46_I2C_ID_3 (AK8963_ADDRESS_R)
+#define MPU9250_REG46_DEFAULT (MPU9250_REG46_I2C_SLV3_RNW | MPU9250_REG46_I2C_ID_3)
+
+// Register 47 - I2C_SLV3_REG [7:0]
+// I2C slave 3 register address from where to begin data transfer 
+#define MPU9250_REG47_ADDR 47
+#define MPU9250_REG47_DEFAULT  (AK8963_REG3_ADDR)  // WHO AM I @ AK8963
+
+// Register 48 - I2C_SLV3_CTRL 
+#define MPU9250_REG48_ADDR 48
+// 1 – Enable reading data from this slave at the sample rate and storing 
+// data at the first available EXT_SENS_DATA register, which is always 
+// EXT_SENS_DATA_00 for I2C slave 0. 
+#define MPU9250_REG48_I2C_SLV3_EN (0x1 << 7)
+// I2C_SLV0_LENG[3:0] 
+#define MPU9250_REG48_I2C_SLV3_LENG 6 // 6 bytes to read: X, Y, Z
+#define MPU9250_REG48_ENABLE (MPU9250_REG48_I2C_SLV3_EN | MPU9250_REG48_I2C_SLV3_LENG)
+#define MPU9250_REG48_DISABLE 0x0 // set 7 bit to zero
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 //  Registers 49 to 53 – I2C Slave 4 Control 
@@ -310,7 +389,7 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // Register 73
 // -------------------------------------------------
 // Registers 73 to 96 – External Sensor Data
-#define MPU9250_REG73_ADDR 73
+#define MPU9250_SLAVE0_DATA_ADDR 73
 // Sensor data read from external I2C devices via the I2C  master interface.  The data stored is controlled by the 
 // I2C_SLV(0-4)_ADDR, I2C_SLV(0-4)_REG, and I2C_SLV(0-4)_CTRL registers 
 
@@ -366,8 +445,10 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // READ/WRITE		READ
 // Description 	Device ID (Device ID of AKM. It is described in one byte and fixed value: 0x48)
 // Bit width 		8
-#define AK8963_REG0_ADDR 0x0
+#define AK8963_WAI_ADDR 0x0
+#define AK8963_HXL_ADDR 0x3 // 6 bytes: HXL, HXH, XYL, XYH, XZL, XZH
 #define AK8963_REG0_WAI_ID 0x48
 
-
+#define AK8963_SCALE_FACTOR (4912.0f / 32760.0f) // OR: ((float)0.15f) 
+	
 #endif // _MPU_H_
