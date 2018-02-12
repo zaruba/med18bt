@@ -1,0 +1,79 @@
+SENSOR1
+
+sensorId: 113
+magX: -22.00 adj: 179.00
+magY: 38.00 adj: 180.00
+magZ: 10.00 adj: 169.00
+horizontal direction: -29.99
+
+SENSOR2
+
+sensorId: 113
+magX: 88.00 adj: 175.00
+magY: 14.00 adj: 177.00
+magZ: 24.00 adj: 166.00
+horizontal direction: 80.90
+at 3633ms
+
+SENSOR1
+
+MPU9250 I AM 71 I should be 71
+MPU9250 is online...
+x-axis self test: acceleration trim within : 0.0% of factory value
+y-axis self test: acceleration trim within : -0.2% of factory value
+z-axis self test: acceleration trim within : 1.0% of factory value
+x-axis self test: gyration trim within : -2.1% of factory value
+y-axis self test: gyration trim within : 0.4% of factory value
+z-axis self test: gyration trim within : -0.0% of factory value
+MPU9250 initialized for active data mode....
+AK8963 I AM 48 I should be 48
+AK8963 initialized for active data mode....
+X-Axis sensitivity adjustment value 1.18
+Y-Axis sensitivity adjustment value 1.19
+Z-Axis sensitivity adjustment value 1.15
+
+ax = -16.24 ay = 785.71 az = 1356.69 mg
+gx = -0.81 gy = 0.02 gz = -0.21 deg/s
+mx = 241 my = -43 mz = 93 mG
+q0 = 1.00 qx = 0.00 qy = 0.00 qz = 0.00
+Yaw, Pitch, Roll: -13.80, 0.00, 0.00
+rate = 991.00 Hz
+
+++++
+
+ax = 0.12 ay = -47.73 az = 1000.67 mg
+gx = 0.12 gy = 0.00 gz = 0.11 deg/s
+mx = -12 my = 83 mz = 74 mG
+q0 = 1.00 qx = -0.04 qy = 0.00 qz = -0.00
+Yaw, Pitch, Roll: -14.37, -0.00, -4.49
+
+SENSOR2
+
+x-axis self test: acceleration trim within : 0.8% of factory value
+y-axis self test: acceleration trim within : 3.6% of factory value
+z-axis self test: acceleration trim within : 6.6% of factory value
+x-axis self test: gyration trim within : -2.5% of factory value
+y-axis self test: gyration trim within : -1.2% of factory value
+z-axis self test: gyration trim within : -0.2% of factory value
+MPU9250 initialized for active data mode....
+AK8963 I AM 48 I should be 48
+AK8963 initialized for active data mode....
+X-Axis sensitivity adjustment value 1.20
+Y-Axis sensitivity adjustment value 1.20
+Z-Axis sensitivity adjustment value 1.16
+
+ax = -91.06 ay = -0.85 az = 906.25 mg
+gx = -0.06 gy = 0.15 gz = -0.05 deg/s
+mx = -719 my = 210 mz = 5 mG
+q0 = 1.00 qx = 0.00 qy = 0.00 qz = 0.00
+Yaw, Pitch, Roll: -13.80, 0.00, 0.00
+
+++++
+
+ax = -84.59 ay = -1.46 az = 911.93 mg
+gx = -0.05 gy = 0.05 gz = 0.05 deg/s
+mx = -883 my = 258 mz = -20 mG
+q0 = 0.80 qx = -0.03 qy = 0.04 qz = 0.60
+Yaw, Pitch, Roll: 59.52, 5.43, 0.06
+
+
