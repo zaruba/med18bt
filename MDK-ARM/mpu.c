@@ -8,7 +8,7 @@
 
 static float m_magn_sensadj[3];
 
-// TEMP_degC   = ((TEMP_OUT – RoomTemp_Offset)/Temp_Sensitivity) + 21degC 
+// TEMP_degC   = ((TEMP_OUT - RoomTemp_Offset)/Temp_Sensitivity) + 21degC 
 // Where Temp_degC is the temperature in degrees C measured by the temperature sensor.  
 // TEMP_OUT is the actual output of the temperature sensor. 
 
@@ -59,117 +59,167 @@ void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination) {
 }
 //
 
-	
-HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c) {
+HAL_StatusTypeDef MPU_Read(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t *data, uint8_t bytes_to_read) {
 	HAL_StatusTypeDef res;
+
+	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, reg_addr, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
+	if (res != HAL_OK) {
+		printf("ERROR: I2C 0x%x@0x%x: read: failed\r\n", reg_addr, MPU9250_ADDRESS_R);
+		return HAL_ERROR;
+	}
+
+#ifdef DEBUG_I2C
+	if (bytes_to_read == 1)
+		printf("DEBUG: I2C 0x%x@0x%x: read: 0x%x\r\n", reg_addr, MPU9250_ADDRESS_R, (uint8_t)*data);
+	else
+		printf("DEBUG: I2C 0x%x@0x%x: read: %d bytes\r\n", reg_addr, MPU9250_ADDRESS_R, bytes_to_read);
+#endif
+	
+	return HAL_OK;
+}
+
+HAL_StatusTypeDef MPU_Write(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t data) {
+	uint8_t t = data;
+	HAL_StatusTypeDef res;
+
+	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, reg_addr, 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (res != HAL_OK) {
+		printf("ERROR: I2C 0x%x@0x%x: write: 0x%x: failed\r\n", reg_addr, MPU9250_ADDRESS_W, t);
+		return HAL_ERROR;
+	}
+
+#ifdef DEBUG_I2C
+	printf("DEBUG: I2C 0x%x@0x%x: write: 0x%x\r\n", reg_addr, MPU9250_ADDRESS_W, t);
+#endif
+	
+	return HAL_OK;
+}
+
+
+HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required) {
 	uint8_t t;
+
+	// PWR_MGMT_1: Perform hard reset
+	if (hard_reset_required) {
+		
+		if (MPU_Write( hi2c, MPU9250_REG107_ADDR, MPU9250_REG107_H_RESET|MPU9250_REG107_CLKSEL_INTERNAL ) != HAL_OK) {
+			// TODO perform low level initialization
+			printf("ERROR: I2C: hard reset failed\r\n");
+			return HAL_ERROR;
+		}
+
+		HAL_Delay(100);
+	}
 	
 	// =========================================================================================
-	// Setup ACCEL/GYRO/TEMP MPU9250
+	// Wake up device 
+	// PWR_MGMT_1 - reg 107
 	// =========================================================================================
 
+	// Clear sleep mode bit (6), enable all sensors 
+	// Reset sensors
+	if (MPU_Write( hi2c, MPU9250_REG107_ADDR, MPU9250_REG107_CLKSEL_INTERNAL ) != HAL_OK)
+			return HAL_ERROR;
+	HAL_Delay(100);
+
+	// Auto select clock source to be PLL gyroscope reference if ready else 
+	if (MPU_Write( hi2c, MPU9250_REG107_ADDR, MPU9250_REG107_CLKSEL_PLL ) != HAL_OK)
+			return HAL_ERROR;
+	HAL_Delay(100);
+
+	// =========================================================================================
 	// get WHOAMI ID
-	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG117_ADDR, 1, &t, 8, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		printf("ERROR: I2C 0x%x@0x%x: Can't get MPU ID\r\n", MPU9250_REG117_ADDR, MPU9250_ADDRESS_R);
+	// =========================================================================================
+	if (MPU_Read(hi2c, MPU9250_REG117_ADDR, &t, 8) != HAL_OK) {
+		printf("ERROR: Can't get MPU ID\r\n");
 		return HAL_ERROR;
 	}
 	if ( (t&0xff) != MPU9250_REG117_WAI_ID) {
 		printf("ERROR: device has invalid device ID=0x%x, default=0x%x (I2C)\r\n", (t&0xff), MPU9250_REG117_WAI_ID);
 		return HAL_ERROR;
 	}
-		
-	// PWR_MGMT_1:
-	// Perform hard reset
-	t = MPU9250_REG107_H_RESET; 
-	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG107_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		printf("ERROR: I2C failed: hard reset: PWR_MGMT_1 (107)\r\n");
-		return HAL_ERROR;
-	}
-	printf("DEBUG: PWR_MGMT_1 (107): hard reset: 0x%x\r\n", t);
-	HAL_Delay(100);
-
-	// Clear sleep mode bit (6), reset and enable all sensors 
-	t = MPU9250_REG107_CLKSEL_DEFAULT; 
-	res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG107_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		printf("ERROR: I2C failed: PWR_MGMT_1 (107)\r\n");
-		return HAL_ERROR;
-	}
-	printf("DEBUG: PWR_MGMT_1 (107): setup: 0x%x\r\n", t);
-	HAL_Delay(10);
+			
+	// =========================================================================================
+	// Configure Gyro and Thermometer
+	// =========================================================================================
+	// Disable FSYNC and set thermometer and gyro bandwidth to 41 and 42 Hz, respectively; 
+	// minimum delay time for this setting is 5.9 ms, which means sensor fusion update rates cannot
+	// be higher than 1 / 0.0059 = 170 Hz
+	// DLPF_CFG = bits 2:0 = 011; this limits the sample rate to 1000 Hz for both
+	// With the MPU9250, it is possible to get gyro sample rates of 32 kHz (!), 8 kHz, or 1 kHz
+	if (MPU_Write(hi2c, MPU9250_REG26_CONFIG_ADDR, MPU9250_REG26_FIFO_NOT_OVERWRITE|MPU9250_REG26_DLPF_CFG) != HAL_OK)
+			return HAL_ERROR;
 	
-	// ---------------------------------
-	// Configure Gyro and Accelerometer
-	// ---------------------------------
-
-	// Disable FSYNC and set accelerometer and gyro bandwidth to 44 and 42 Hz, respectively;
-	// DLPF_CFG = bits 2:0 = 010; this sets the sample rate at 1 kHz for both
-	// Maximum delay is 4.9 ms which is just over a 200 Hz maximum rate
-	t = MPU9250_REG26_DEFAULT;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG26_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	if (res != HAL_OK) {
-		printf("ERROR: Can't init MPU: DLPF_CFG (I2C)\r\n");
-		return HAL_ERROR;
-	}
-	printf("DEBUG: DLPF_CFG (26): 0x%x\r\n", t);
-
 	// Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-	t = MPU9250_REG25_SMPLRT_DIV_DEFAULT;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG25_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // Use a 200 Hz rate; the same rate set in CONFIG above
-	printf("DEBUG: SMPLRT_DIV (25): 0x%x\r\n", t);
-   
-	// Set gyroscope full scale range
-	// Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_GYRO_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);    // get current GYRO_CONFIG register value
-	
-  t &= ~MASK_GYRO_CFG_SELFTEST; // Clear self-test bits [7:5]
-	t &= ~MASK_GYRO_CFG_FS; // Clear AFS bits [4:3]
-	t &= ~MASK_GYRO_CFG_FCHOICE; // Clear Fchoice bits [1:0]
-	t |= FLG_GYRO_CFG_GYRO_FS_250DPS; // Set full scale range for the gyro - 0=+250dps
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_GYRO_CFG, 1, &t, 1, MPU_I2C_TIMEOUT);    // Write new GYRO_CONFIG value to register
-	printf("DEBUG: GYRO_CFG: 0x%x\r\n", t);
- 
-  // Set accelerometer full-scale range configuration
-  HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG register value
-	
-  t &= ~MASK_ACCEL_CFG_SELFTEST; // Clear self-test bits [7:5]
-  t &= ~MASK_ACCEL_CFG_FS;  // Clear AFS bits [4:3]
-  t |= FLG_ACCEL_CFG_FS_2G; // Set full scale range for the accelerometer  - 0=2g
-  HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG register value
-	printf("DEBUG: ACCEL_CFG: 0x%x\r\n", t);
-   
-  // Set accelerometer sample rate configuration
-  // It is possible to get a 4 kHz sample rate from the accelerometer by choosing 1 for
-  // accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_CFG2, 1, &t, 6, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG2 register value
+	// Use a 200 Hz rate; a rate consistent with the filter update rate determined inset in CONFIG above 
+	if (MPU_Write(hi2c, MPU9250_REG25_SMPLRT_DIV_ADDR, MPU9250_REG25_SMPLRT_DIV_DEFAULT) != HAL_OK)
+			return HAL_ERROR;
 
-	t &= ~MASK_GYRO_CFG2_FCHOICE; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0]) 
-  t |= FLG_ACCEL_CFG_DLPFCFG;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, REG_ACCEL_CFG2, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG2 register value
-	printf("DEBUG: ACCEL_CFG2: 0x%x\r\n", t);
+ // Set gyroscope full scale range
+ // Range selects FS_SEL and GFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3
+	if (MPU_Read(hi2c, MPU9250_REG27_GYRO_ADDR, &t, 1) != HAL_OK)
+			return HAL_ERROR;
 
+  t = t & ~MPU9250_REG27_GYRO_SELFTEST_MASK; // Clear self-test bits [7:5]
+	t = t & ~MPU9250_REG27_GYRO_FS_MASK; // Clear AFS bits [4:3]
+	t = t & ~MPU9250_REG27_GYRO_FCHOICE_MASK; // Clear Fchoice bits [1:0]
+	t = t |  MPU9250_REG27_GYRO_FS_250DPS; // Set full scale range for the gyro - 0=+250dps
+	
+	if (MPU_Write(hi2c, MPU9250_REG27_GYRO_ADDR, t) != HAL_OK)
+			return HAL_ERROR;
+
+	
+	// =========================================================================================
+	// Configure Accelerometer
+	// =========================================================================================
+	// Set accelerometer full-scale range configuration
+	if (MPU_Read(hi2c, MPU9250_REG28_ACCEL_ADDR, &t, 1) != HAL_OK)
+			return HAL_ERROR;
+
+  t = t & ~MPU9250_REG28_ACCEL_SELFTEST_MASK; // Clear self-test bits [7:5]
+  t = t & ~MPU9250_REG28_ACCEL_CFG_FS_MASK;  // Clear AFS bits [4:3]
+  t = t |  MPU9250_REG28_ACCEL_FS_2G; // Set full scale range for the accelerometer  - 0=2g
+	
+	if (MPU_Write(hi2c, MPU9250_REG28_ACCEL_ADDR, t) != HAL_OK)
+			return HAL_ERROR;
+
+	// Set accelerometer sample rate configuration
+	// It is possible to get a 4 kHz sample rate from the accelerometer by choosing 1 for
+	// accel_fchoice_b bit [3]; in this case the bandwidth is 1.13 kHz 	
+	if (MPU_Read(hi2c, MPU9250_REG29_ACCEL2_ADDR, &t, 1) != HAL_OK)
+			return HAL_ERROR;
+
+	t = t & ~MPU9250_REG29_ACCEL2_FCHOICE_MASK; // Clear accel_fchoice_b (bit 3) and A_DLPFG (bits [2:0]) 
+  t = t |  MPU9250_REG29_ACCEL2_DLPFCFG;  // Set accelerometer rate to 1 kHz and bandwidth to 41 Hz
+	
+	if (MPU_Write(hi2c, MPU9250_REG29_ACCEL2_ADDR, t) != HAL_OK)
+			return HAL_ERROR;
+	
 	// =========================================================================================
 	// Setip MP9250 to use compass via internal i2c bus
 	// =========================================================================================
 
 	// Disable by-pass mode (INT_PIN_CFG @55)
 	// Disconnects the bypass on EDA/ECL `	if it was enabled
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG55_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT);
+	if (MPU_Read(hi2c, MPU9250_REG55_ADDR, &t, 1) != HAL_OK)
+		return HAL_ERROR;	
 	t = t & ~MPU9250_REG55_BYPASS_EN;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG55_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	printf("DEBUG: INT_PIN_CFG (55): 0x%x\r\n", t);
+	if (MPU_Write(hi2c, MPU9250_REG55_ADDR, t) != HAL_OK)
+		return HAL_ERROR;	
 
 	// Enables the I2C Master within the MPU (USER_CTRL @106)
-	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG106_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT); 
+	if (MPU_Read(hi2c, MPU9250_REG106_ADDR, &t, 1) != HAL_OK)
+		return HAL_ERROR;	
 	t = t | MPU9250_REG106_FIFO_EN;
 	t = t | MPU9250_REG106_I2C_MST_EN;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	printf("DEBUG: USER_CTRL (106): 0x%x\r\n", t);
-
+	if (MPU_Write(hi2c, MPU9250_REG106_ADDR, t) != HAL_OK)
+		return HAL_ERROR;	
+	
+	
 	// Setup I2C MST 
-	res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG36_ADDR, 1, &t, 6, MPU_I2C_TIMEOUT); 
+	if (MPU_Read(hi2c, MPU9250_REG36_ADDR, &t, 1) != HAL_OK)
+		return HAL_ERROR;	
+	
 	// clear MULT_MST_EN [7] - Unless there are multiple masters hooked up to that bus
 	t = t & ~MPU9250_REG36_MULT_MST_EN;
 	// clear SLV3_FIFO_EN [5] - Unless you are using FIFO for Slave3 requested data 
@@ -180,28 +230,30 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c) {
 	t = t | MPU9250_REG36_I2C_MST_P_NSR;
 	// I2C_MST_CLK = 400kHz 
 	t = t | MPU9250_REG36_I2C_MST_CLK_400KHZ;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG36_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
-	printf("DEBUG: I2C_MST_CTRL(%d): 0x%x\r\n", MPU9250_REG36_ADDR, t);
-
+	
+	if (MPU_Write(hi2c, MPU9250_REG36_ADDR, t) != HAL_OK)
+		return HAL_ERROR;	
+	
 	// ---------------------------------
 	// DISABLE SLAVES #1,2,3
 	// ---------------------------------
 	
 	// DISABLE SLAVE1
 	// Register 42 - I2C_SLV1_CTRL 
-	t = MPU9250_REG42_DISABLE;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG42_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (MPU_Write(hi2c, MPU9250_REG42_ADDR, MPU9250_REG42_DISABLE) != HAL_OK)
+		return HAL_ERROR;	
 	
 	// Register 45 - I2C_SLV2_CTRL 
 	// DISABLE SLAVE2
-	t = MPU9250_REG45_DISABLE;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG45_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (MPU_Write(hi2c, MPU9250_REG45_ADDR, MPU9250_REG45_DISABLE) != HAL_OK)
+		return HAL_ERROR;	
 
 	// Register 48 - I2C_SLV3_CTRL 
 	// DISABLE SLAVE2
-	t = MPU9250_REG48_DISABLE;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG48_ADDR , 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (MPU_Write(hi2c, MPU9250_REG48_ADDR, MPU9250_REG48_DISABLE) != HAL_OK)
+		return HAL_ERROR;	
 
+	
 	// ---------------------------------
 	// MAGN
 	// ---------------------------------
@@ -218,45 +270,55 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c) {
 	// Shutdown AK8963
 	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
 		return HAL_ERROR;
-	HAL_Delay(50);
+	HAL_Delay(100);
 	
 	// set AK8963 to FUSE ROM access
 	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0xF) != HAL_OK)
 		return HAL_ERROR;
-	HAL_Delay(50);
+	HAL_Delay(100);
 
 	// read the AK8963 ASA registers and compute magnetometer scale factors
 	uint8_t buffer[3];
 	if (AK8963_SL0_Read(hi2c, 0x10, buffer, 3) != HAL_OK)
 		return HAL_ERROR;
 
-	m_magn_sensadj[0] = (((float)buffer[0] - 128.0f)/(256.0f) + 1.0f) * AK8963_SCALE_FACTOR;
-	m_magn_sensadj[1] = (((float)buffer[1] - 128.0f)/(256.0f) + 1.0f) * AK8963_SCALE_FACTOR;
-	m_magn_sensadj[2] = (((float)buffer[2] - 128.0f)/(256.0f) + 1.0f) * AK8963_SCALE_FACTOR;
 	
+	m_magn_sensadj[0] = (((float)buffer[0] - 128.0f)/(256.0f) + 1.0f);
+	m_magn_sensadj[1] = (((float)buffer[1] - 128.0f)/(256.0f) + 1.0f);
+	m_magn_sensadj[2] = (((float)buffer[2] - 128.0f)/(256.0f) + 1.0f);
+	
+	printf("DEBUG: MGN Raw Adj: x=%d y=%d z=%d\r\n", 
+		buffer[0], buffer[1], buffer[2]);
+
 	printf("DEBUG: MGN SensAdj: x=%f y=%f z=%f\r\n", 
 		m_magn_sensadj[0], m_magn_sensadj[1], m_magn_sensadj[2]);
+	
+	// Shutdown AK8963
+	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
+		return HAL_ERROR;
+	HAL_Delay(100);
 	
 	// ---------------------------------
 	// Magn :: Power On
 	// ---------------------------------
 	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x16) != HAL_OK)
 		return HAL_ERROR;
+	HAL_Delay(100);
 
 	// ---------------------------------
 	// Magn :: Setup MAGN as a source for Slave0
 	// ---------------------------------
-	if (AK8963_SL0_Setup(hi2c, AK8963_HXL_ADDR, 7) != HAL_OK)
+	if (AK8963_SL0_Setup(hi2c, AK8963_HXL_ADDR, AK8963_FRAME_SZ) != HAL_OK)
 		return HAL_ERROR;
 
 	// =========================================================================================
 	// Setup MPU9250 - FIFO
 	// =========================================================================================
-	t = MPU9250_REG35_DEFAULT;
-	HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG35_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);
+	if (MPU_Write(hi2c, MPU9250_REG35_ADDR, MPU9250_REG35_DEFAULT) != HAL_OK)
+		return HAL_ERROR;	
 	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
 	
-	
+		
 	printf("DEBUG: MPU initliazed sucessully\r\n");
 	return HAL_OK;
 }
@@ -276,7 +338,7 @@ HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_a
 	if (HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_SLAVE0_BASE+1, 1, &t, 1, MPU_I2C_TIMEOUT) != HAL_OK)
 		return HAL_ERROR;
 	
-	// Register 99 – I2C Slave 0 Data Out 
+	// Register 99 I2C Slave 0 Data Out 
 	if (HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, 99, 1, &data, 1, MPU_I2C_TIMEOUT) != HAL_OK)
 		return HAL_ERROR;
 
@@ -313,7 +375,7 @@ HAL_StatusTypeDef AK8963_SL0_Read(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_ad
 	if (AK8963_SL0_Setup(hi2c, ak8963_reg_addr, bytes_to_read) != HAL_OK)
 		return HAL_ERROR;
 		
-	HAL_Delay(10);
+	HAL_Delay(50);
 	
 	// Reading 0x0 from slave device (73 register)
 	if (HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_SLAVE0_DATA_ADDR, 1, data, bytes_to_read, MPU_I2C_TIMEOUT) != HAL_OK)
@@ -329,7 +391,7 @@ int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c ) {
 	uint8_t t;
 	int16_t t_fifo_cnt = 0;
 
-	// Read Register 114 and 115 – FIFO Count Registers 
+	// Read Register 114 and 115 - FIFO Count Registers 
 	
 	// FIFO_CNT[12:8] 4 bits
 	// High Bits, count indicates the number of written bytes in the FIFO. 
@@ -357,27 +419,28 @@ int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c ) {
 //	
 
 HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c ) {
-	HAL_StatusTypeDef res;
 	uint8_t t;
 	
-	// Register 106 – User Control 
+	// Register 106 - User Control 
 	// [2]  FIFO_RST 
-	// 1 – Reset FIFO module. Reset is asynchronous.  This bit auto clears after  one clock cycle. 
-  res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // get current ACCEL_CONFIG register value
-	if (res != HAL_OK)
-		return HAL_ERROR;
-
+	// 1 - Reset FIFO module. Reset is asynchronous.  This bit auto clears after  one clock cycle. 
+	if (MPU_Read(hi2c, MPU9250_REG106_ADDR, &t, 1) != HAL_OK)
+			return HAL_ERROR;
+	
   t |= MPU9250_REG106_FIFO_RST;
-  res = HAL_I2C_Mem_Write(hi2c, MPU9250_ADDRESS_W, MPU9250_REG106_ADDR, 1, &t, 1, MPU_I2C_TIMEOUT);   // Write new ACCEL_CONFIG register value
-	if (res != HAL_OK)
-		return HAL_ERROR;
+	
+  // Write new ACCEL_CONFIG register value
+	if (MPU_Write(hi2c, MPU9250_REG106_ADDR, t) != HAL_OK)
+			return HAL_ERROR;
+	
+	HAL_Delay(100);
   	
 	return HAL_OK;
 }
 //
 
 
-HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_data, int16_t *gyro_data, float *magn_data, float *temp ) {
+HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, float *accel_data, float *gyro_data, float *magn_data, float *temp ) {
 	HAL_StatusTypeDef res;
 	uint8_t t;
 	uint16_t data[MPU9250_FIFO_FRAME_SIZE];
@@ -392,11 +455,12 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_
 			printf("DEBUG: need more data to read: %d of %d bytes available\r\n", t_fifo_cnt, MPU9250_FIFO_FRAME_SIZE);
 			return HAL_OK;
 		}
-					
-		// printf("DEBUG: %d (framesize %d) bytes to read\r\n", t_fifo_cnt, MPU9250_FIFO_FRAME_SIZE);
-
+		
+#ifdef DEBUG_I2C		
+		printf("DEBUG: %d (framesize %d) bytes to read\r\n", t_fifo_cnt, MPU9250_FIFO_FRAME_SIZE);
+#endif
 	
-	// Register 116 – FIFO Read Write
+	// Register 116 - FIFO Read Write
 	// Read/Write command provides Read or Write operation for  the FIFO.  
 	// Description: 
 	// This register is used to read and write data from the FIFO buffer.  
@@ -415,6 +479,10 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_
 	// buffer is not read when empty. 
 
 	for (int i = 0; i < MPU9250_FIFO_FRAME_SIZE; i++) {
+		
+	if (MPU_Read(hi2c, MPU9250_REG116_ADDR, &t, 1) != HAL_OK)
+			return HAL_ERROR;
+			
 		res = HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, 116, 1, &t, 1, MPU_I2C_TIMEOUT); 	
 		if (res != HAL_OK) {
 			return HAL_ERROR;
@@ -428,33 +496,62 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_
 	accel_data[1] = (int16_t)(((int16_t)data[2] << 8) | data[3]);
 	accel_data[2] = (int16_t)(((int16_t)data[4] << 8) | data[5]);
 
+	accel_data[0] = accel_data[0] * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[1] = accel_data[1] * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[2] = accel_data[2] * MPU9250_ACCEL_2G_RESOLUTION;
+	
 	// TEMP: [6:7]
 	*temp = (float) (((uint16_t)data[6]) << 8 | data[7]);  // Turn the MSB and LSB into a 16-bit value
-	// TEMP_degC   = ((TEMP_OUT – RoomTemp_Offset)/Temp_Sensitivity)  + 21degC
+	// TEMP_degC   = ((TEMP_OUT - RoomTemp_Offset)/Temp_Sensitivity)  + 21degC
 	#define TEMP_OFFSET -521
 	#define TEMP_SENS 340
-	*temp = 21 + ((*temp - (float)TEMP_OFFSET) / TEMP_SENS);
-	// *temp = *temp / 100.0f;
+	*temp = 21.0f + ((*temp - (float)TEMP_OFFSET) / TEMP_SENS);
 
 	// GYRO: x[8:9] y[10:11] z[12:13]
-	gyro_data[0] = (int16_t)(((int16_t)data[8] << 8) | data[9]);  // Turn the MSB and LSB into a signed 16-bit value
+	gyro_data[0] = (int16_t)(((int16_t)data[8] << 8) | data[9]);  
 	gyro_data[1] = (int16_t)(((int16_t)data[10] << 8) | data[11]); 
 	gyro_data[2] = (int16_t)(((int16_t)data[12] << 8) | data[13]);
 	
-	// SLAVE1: MAGN DATA: x[15:14] y[17:16] z[19:18]
-	// 14:HXL 15:HXH
-	magn_data[0] = (float)(((int16_t)data[15] << 8) | data[14]);
-	magn_data[1] = (float)(((int16_t)data[17] << 8) | data[16]); 
-	magn_data[2] = (float)(((int16_t)data[19] << 8) | data[18]);
+	gyro_data[0] = gyro_data[0] * MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[1] = gyro_data[1] * MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[2] = gyro_data[2] * MPU9250_GYRO_250DPS_RESOLUTION;
 	
-	magn_data[0] *= m_magn_sensadj[0];
-	magn_data[1] *= m_magn_sensadj[1];
-	magn_data[2] *= m_magn_sensadj[2];
+	// SLAVE1: MAGN DATA: ST1[14] x[16:15] y[18:17] z[20:19] ST2[21]
+
+	// checking AT8936 ST1 registger: 
+
+	// DRDY bit turns to 1 when data is ready in single measurement mode or self-test mode. 
+	// It returns to 0 when any one of ST2 register or measurement data register (HXL to HZH) is read.
+	if (data[14] & 0x01) {
+#ifdef DEBUG_I2C		
+		// IGNORE IT NOW
+		printf("WARNING: AK8963: ST1: 0x%x: DRDY (01b): Data is not ready: device is in signle measurement or self-test mode)\r\n", data[14]);
+#endif
+	}
+	
+	// 
+	if (data[14] & 0x2) {
+#ifdef DEBUG_I2C		
+		printf("WARNING: AK8963: ST1: 0x%x: DOR (10b): Data overrun\r\n", data[14]);
+#endif
+	}
+	
+	// 14:HXL 15:HXH
+	magn_data[0] = (float)(((int16_t)data[16] << 8) | data[15]);
+	magn_data[1] = (float)(((int16_t)data[18] << 8) | data[17]); 
+	magn_data[2] = (float)(((int16_t)data[20] << 8) | data[19]);
+	
+	magn_data[0] *= m_magn_sensadj[0] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_X;
+	magn_data[1] *= m_magn_sensadj[1] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Y;
+	magn_data[2] *= m_magn_sensadj[2] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Z;
 
 	// checking AT8936 ST2 registger: 
 	// HOFL: Magnetic sensor overflow [3]
-	if (data[20] & 0x8) {
-		printf("WARNING: ST2: 0x%x: Magnetic sensor overflow\r\n", data[20]);
+	if (data[21] & 0x8) {
+#ifdef DEBUG_I2C				
+		// TODO
+		printf("WARNING: AK8963: ST2: 0x%x: Magnetic sensor overflow\r\n", data[21]);
+#endif
 	}
 //	printf("DEBUG: Temp %f\r\n", *temp);
 
@@ -462,42 +559,4 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_
 }
 //
 
-HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c) {
-  
-	//uint8_t t;
-//	uint8_t rawData[3];  // x/y/z gyro calibration data stored here
-	//HAL_StatusTypeDef res;
 
-/*	
-	// First extract the factory calibration for each magnetometer axis
-	R=0x00;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, MPU_I2C_TIMEOUT);    // Power down magnetometer 
-	HAL_Delay(10);
-	
-	R=0x0F;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, 100);    // Enter Fuse ROM access mode
-	HAL_Delay(10);
-	
-	HAL_I2C_Mem_Read(hi2c, AK8963_ADDRESS_R, AK8963_ASAX, 1, rawData, 3, 100);  // Read the x-, y-, and z-axis calibration values
-	destination[0] =  (float)(rawData[0] - 128)/256.0f + 1.0f;   // Return x-axis sensitivity adjustment values, etc.
-	destination[1] =  (float)(rawData[1] - 128)/256.0f + 1.0f; 
-	destination[2] =  (float)(rawData[2] - 128)/256.0f + 1.0f;
-	
-	R=0x00;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, 100);    // Power down magnetometer 
-	HAL_Delay(10);
-	
-	// Configure the magnetometer for continuous read and highest resolution
-	// set Mscale bit 4 to 1 (0) to enable 16 (14) bit resolution in CNTL register,
-	// and enable continuous mode data acquisition Mmode (bits [3:0]), 0010 for 8 Hz and 0110 for 100 Hz sample rates
-	R = 0 << 4 | 0x06;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_CNTL, 1, &R, 1, 100);    // Set magnetometer data resolution and sample ODR
-	HAL_Delay(10);
-
-	R=0x40;
-	HAL_I2C_Mem_Write(hi2c, AK8963_ADDRESS_W, AK8963_ASTC, 1, &R, 1, 100); // set self-test
-	//   
-*/
-	return HAL_OK;
-}
-//
