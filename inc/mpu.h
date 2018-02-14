@@ -7,10 +7,14 @@ extern float MPU_get_temp(I2C_HandleTypeDef *hi2c);
 extern void MPU_get_accel(I2C_HandleTypeDef *hi2c, int16_t *destination);
 extern void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination);
 extern void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination);
-extern HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c);
+
+extern HAL_StatusTypeDef MPU_Read(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t *data, uint8_t bytes_to_read);
+extern HAL_StatusTypeDef MPU_Write(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t data);
+
+extern HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required);
 extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 extern int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c );
-extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, int16_t *accel_data, int16_t *gyro_data, float *magn_data, float *temp );
+extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, float *accel_data, float *gyro_data, float *magn_data, float *temp );
 extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
 
 extern HAL_StatusTypeDef AK8963_SL0_Setup(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t bytes_to_read);
@@ -28,12 +32,12 @@ extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak896
 #define MPU9250_FIFO_SIZE 512
 // See register 35
 // Contains: Temp (2) + 
-#define MPU9250_FIFO_FRAME_SIZE (6+2+6+7) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (3*2 + 1 status byte)
+#define MPU9250_FIFO_FRAME_SIZE (6+2+6+AK8963_FRAME_SZ) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (ST1 + 3*2 + ST2)
 
 //  Register 25 – Sample Rate Divider 
 // -------------------------------------------------
 // SMPLRT_DIV 
-#define MPU9250_REG25_ADDR 25
+#define MPU9250_REG25_SMPLRT_DIV_ADDR 25
 // Divides  the  internal  sample  rate  (see  register  CONFIG)  to  generate  the 
 // sample  rate  that  controls  sensor  data  output  rate,  FIFO  sample  rate.  
 // NOTE:  This  register  is  only  effective  when  Fchoice  =  2’b11  (fchoice_b 
@@ -47,7 +51,7 @@ extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak896
 // Register 26 – Configuration 
 // -------------------------------------------------
 // CONFIG
-#define MPU9250_REG26_ADDR 26
+#define MPU9250_REG26_CONFIG_ADDR 26
 
 // FIFO_MODE [6]
 // When set to ‘1’, when the fifo is full, additional writes will not be written to fifo.  
@@ -56,11 +60,38 @@ extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak896
 #define MPU9250_REG26_FIFO_OVERWRITE (0x0 << 6)
 
 // DLPF_CFG [2:0]
-// For the DLPF to be used, fchoice[1:0] must be set to 2’b11, fchoice_b[1:0] is  2’b00. See table 3 below. 
-// GYRO: bandwidth = 41 hz
-// TEMP: bandwidth = 42 hz 
+// Disable FSYNC and set thermometer and gyro bandwidth to 41 and 42 Hz, respectively; 
+// minimum delay time for this setting is 5.9 ms, which means sensor fusion update rates cannot
+// be higher than 1 / 0.0059 = 170 Hz
+// DLPF_CFG = bits 2:0 = 011; this limits the sample rate to 1000 Hz for both
+// With the MPU9250, it is possible to get gyro sample rates of 32 kHz (!), 8 kHz, or 1 kHz 
 #define MPU9250_REG26_DLPF_CFG 0x3
-#define MPU9250_REG26_DEFAULT (MPU9250_REG26_FIFO_NOT_OVERWRITE | MPU9250_REG26_DLPF_CFG)
+
+// Register 27 – Gyroscope Configuration
+// -------------------------------------------------
+#define MPU9250_REG27_GYRO_ADDR 27
+#define MPU9250_REG27_GYRO_SELFTEST_MASK ((0x1<<7) | (0x1<<6) | (0x1<<5)) // bits 7-5
+#define MPU9250_REG27_GYRO_FS_MASK ((0x1<<4) | (0x1<<3))
+#define MPU9250_REG27_GYRO_FCHOICE_MASK (0x1 << 1 | 0x1 )
+#define MPU9250_REG27_GYRO_FS_250DPS (0x0<<3)
+#define MPU9250_GYRO_250DPS_RESOLUTION (250.0f/32768.0f) 
+
+// Register 28 – Accelerometer Configuration
+// -------------------------------------------------
+#define MPU9250_REG28_ACCEL_ADDR 28
+#define MPU9250_REG28_ACCEL_SELFTEST_MASK ((0x1<<7) | (0x1<<6) | (0x1<<5)) // bits 7-5
+#define MPU9250_REG28_ACCEL_CFG_FS_MASK ((0x1<<4) | (0x1<<3))
+#define MPU9250_REG28_ACCEL_DLPFCFG_MASK ((0x1 << 1) | 0x1 )
+#define MPU9250_REG28_ACCEL_FS_2G ((0x0<<4) | (0x0<<3))
+#define MPU9250_ACCEL_2G_RESOLUTION (2.0f/32768.0f) 
+
+// Register 29 – Accelerometer Configuration 2
+// -------------------------------------------------
+#define MPU9250_REG29_ACCEL2_ADDR 29
+
+#define MPU9250_REG29_ACCEL2_FCHOICE_MASK (0x1 << 3)
+#define MPU9250_REG29_ACCEL2_DLPFCFG_MASK ((0x1 << 1) | 0x1 )
+#define MPU9250_REG29_ACCEL2_DLPFCFG 0x3
 
 
 // Register 35 – FIFO Enable 
@@ -111,73 +142,6 @@ extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak896
 #define MPU9250_REG36_I2C_MST_CLK_400KHZ 13 // I2C clock speed is 400 kHz 
 
 #define MPU9250_REG36_DEFAULT (MPU9250_REG36_MULT_MST_EN | MPU9250_REG36_WAIT_FOR_ES | MPU9250_REG36_I2C_MST_CLK_400KHZ)
-
-
-
-/*
- 
-BIT  NAME  FUNCTION 
-[7:0]  D[7:0] 
-Low byte of the Z-Axis gyroscope output 
-GYRO_ZOUT =  Gyro_Sensitivity * Z_angular_rate 
-Nominal 
-Conditions 
-FS_SEL = 0 
-Gyro_Sensitivity = 131 LSB/(º/s) 
- 
- 
- 
-4.25  Registers 73 to 96 – External Sensor Data 
- 
-EXT_SENS_DATA_00 – 23 
-Serial IF: SyncR 
-Reset value: 0x00 
- 
-24 registers with the same description as below: 
-BIT  NAME  FUNCTION 
-[7:0]  D[7:0] 
-Sensor data read from external I2C devices via the I2C 
-master interface.  The data stored is controlled by the 
-I2C_SLV(0-4)_ADDR, I2C_SLV(0-4)_REG, and 
-I2C_SLV(0-4)_CTRL registers 
-Description: 
-These registers store data read from external sensors by the Slave 0, 1, 2, and 3 on the auxiliary I
-2
-C 
-interface. Data read by Slave 4 is stored in I2C_SLV4_DI (Register 53).  
-External sensor data is written to these registers at the Sample Rate as defined in Register 25. This 
-access rate can be reduced by using the Slave Delay Enable registers (Register 103). 
-Data  is  placed  in  these  external  sensor  data  registers  according  to  I2C_SLV0_CTRL, 
-I2C_SLV1_CTRL,  I2C_SLV2_CTRL,  and  I2C_SLV3_CTRL  (Registers  39,  42,  45,  and  48).  When 
-more than zero bytes are read (I2C_SLVx_LEN > 0) from an enabled slave (I2C_SLVx_EN = 1), the 
-slave is read at the Sample Rate (as defined in Register 25) or delayed rate (if specified in Register 
-52 and 103). During each sample cycle, slave reads are performed in order of Slave number. If all 
-slaves are enabled with more than zero bytes to be read, the order will be Slave 0, followed by Slave 
-1, Slave 2, and Slave 3.  
-Each enabled slave will have EXT_SENS_DATA registers associated with it by number of bytes read 
-(I2C_SLVx_LEN)  in  order  of  slave  number,  starting  from  EXT_SENS_DATA_00.  Note  that  this 
-means enabling or disabling a slave may change the higher numbered slaves’ associated registers. 
-Furthermore,  if  fewer  total  bytes  are  being  read  from  the  external  sensors  as  a  result  of  such  a 
-change, then the data remaining in the registers which no longer have an associated slave device 
-(i.e. high numbered registers) will remain in these previously allocated registers unless reset. 
-If  the  sum  of  the  read  lengths  of  all  SLVx  transactions  exceed  the  number  of  available 
-EXT_SENS_DATA  registers,  the  excess  bytes  will  be  dropped.  There  are  24  EXT_SENS_DATA 
-registers and hence the total read lengths between all the slaves cannot be greater than 24 or some 
-bytes will be lost. 
-Note:  Slave  4’s  behavior  is  distinct  from  that  of  Slaves  0-3.  For  further  information  regarding  the 
-characteristics of Slave 4, please refer to Registers 49 to 53.  
-
-Example: 
-Suppose that Slave 0 is enabled with 4 bytes to be read (I2C_SLV0_EN = 1 and I2C_SLV0_LEN = 
-4) while Slave 1 is enabled with 2 bytes to be read, (I2C_SLV1_EN=1 and I2C_SLV1_LEN = 2). In 
-such  a  situation,  EXT_SENS_DATA  _00  through  _03  will  be  associated  with  Slave  0,  while 
-EXT_SENS_DATA _04 and 05 will be associated with Slave 1.  
-If Slave 2 is enabled as well, registers starting from EXT_SENS_DATA_06 will be allocated to Slave 
-2. 
-If  Slave  2  is  disabled  while  Slave  3  is  enabled  in  this  same  situation,  then  registers  starting  from 
-EXT_SENS_DATA_06 will be allocated to Slave 3 instead.  
-
-*/
 
 // Registers 37 to 39 – I2C Slave 0 Control
 // -------------------------------------------------
@@ -267,19 +231,6 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 #define MPU9250_REG48_DISABLE 0x0 // set 7 bit to zero
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 //  Registers 49 to 53 – I2C Slave 4 Control 
 // -------------------------------------------------
 // Register 49 - I2C_SLV4_ADDR
@@ -302,33 +253,6 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 	
 // Register 53 - I2C_SLV4_DI 
 #define MPU9250_REG53_ADDR 53
-
-
-
-
-
-
-
-#define REG_CONFIG 0x1a
-#define FLG_CONFIG_EXT_SYNC_SET_DISABLED 0x0
-#define FLG_CONFIG_DLPF_CFG_41HZ 0x3
-
-#define REG_GYRO_CFG 0x1b
-#define FLG_GYRO_CFG_GYRO_FS_250DPS 0x0
-#define MASK_GYRO_CFG_SELFTEST ((0x1 << 5) | (0x1 << 6) | (0x1 << 7)) // bits 7-5
-#define MASK_GYRO_CFG_FCHOICE (0x1 << 1 | 0x1 )
-#define MASK_GYRO_CFG_FS ((0x1 << 4) | (0x1 << 3))
-
-#define REG_ACCEL_CFG 0x1c
-#define MASK_ACCEL_CFG_SELFTEST ((0x1 << 5) | (0x1 << 6) | (0x1 << 7)) // bits 7-5
-#define MASK_ACCEL_CFG_DLPFCFG ((0x1 << 1) | 0x1 )
-#define MASK_ACCEL_CFG_FS ((0x1 << 4) | (0x1 << 3))
-#define FLG_ACCEL_CFG_FS_2G ((0x0 << 3) | (0x0 << 4))
-
-#define REG_ACCEL_CFG2 0x1d
-#define MASK_GYRO_CFG2_FCHOICE (0x1 << 3)
-#define MASK_ACCEL_CFG_DLPFCFG ((0x1 << 1) | 0x1 )
-#define FLG_ACCEL_CFG_DLPFCFG 0x3
 
 // Register 55 – INT Pin / Bypass Enable Configuration 
 // -------------------------------------------------
@@ -409,8 +333,6 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 #define MPU9250_REG106_FIFO_RST (0x1 << 2)
 
 
-
-
 // Register 107 – Power Management 1 
 // -------------------------------------------------
 // PWR_MGMT_1 
@@ -418,12 +340,13 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // H_RESET [7]
 // 1 – Reset the internal registers and restores the default settings.  Write a 1 to set the reset, the bit will auto clear. 
 #define MPU9250_REG107_H_RESET (0x1 << 7) 
-#define MPU9250_REG107_DEFAULT 0x0
-
 // CLKSEL: 2 bits
+#define MPU9250_REG107_CLKSEL_INTERNAL 0x0
 // 1 - Auto selects the best available clock source – PLL if ready, else  use the Internal oscillator  
-#define MPU9250_REG107_CLKSEL_DEFAULT 0x1
+#define MPU9250_REG107_CLKSEL_PLL 0x1
 
+// -------------------------------------------------
+#define MPU9250_REG116_ADDR 116
 
 // Register 117 – Who Am I
 // -------------------------------------------------
@@ -446,9 +369,14 @@ EXT_SENS_DATA_06 will be allocated to Slave 3 instead.
 // Description 	Device ID (Device ID of AKM. It is described in one byte and fixed value: 0x48)
 // Bit width 		8
 #define AK8963_WAI_ADDR 0x0
-#define AK8963_HXL_ADDR 0x3 // 6 bytes: HXL, HXH, XYL, XYH, XZL, XZH
+#define AK8963_HXL_ADDR 0x2 // 8 bytes: ST1, HXL, HXH, XYL, XYH, XZL, XZH, ST2 - see MPU9250_FIFO_FRAME_SIZE
+#define AK8963_FRAME_SZ 8
 #define AK8963_REG0_WAI_ID 0x48
 
-#define AK8963_SCALE_FACTOR (4912.0f / 32760.0f) // OR: ((float)0.15f) 
+#define AK8963_MAG_BIAS_X 0 // User environmental x-axis correction in milliGauss, should be automatically calculated
+#define AK8963_MAG_BIAS_Y 0 // User environmental x-axis correction in milliGauss
+#define AK8963_MAG_BIAS_Z 0 // User environmental x-axis correction in milliGauss
+		
+#define AK8963_SCALE_FACTOR (4912.0f / 32760.0f) // 0.149..f OR ((float)0.15f) 
 	
 #endif // _MPU_H_

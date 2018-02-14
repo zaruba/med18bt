@@ -54,7 +54,8 @@
 #include "string.h"
 #include "discovery.h"
 #include "mpu.h"
-#include "lpms-me1.h"
+//#include "lpms-me1.h"
+#include "ahrs.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -92,8 +93,8 @@ int mUartTxBufSz;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 void StartDefaultTask(void const * argument);
 
 /* USER CODE BEGIN PFP */
@@ -134,8 +135,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  MX_I2C1_Init(); // MPU9250
-  //MX_USART2_UART_Init(); // LPMS-ME1
+  MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 	
 	printf("DEBUG: Application started\r\n");
@@ -255,7 +256,7 @@ static void MX_I2C1_Init(void)
 {
 
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -460,11 +461,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* StartDefaultTask function */
 void StartDefaultTask(void const * argument)
 {
+
   /* USER CODE BEGIN 5 */
 	uint8_t mpu_init_required = 1;
-	int16_t accel_data[3], gyro_data[3];
+	float accel_data[3];
+	float gyro_data[3];
 	float magn_data[3];
 	float temp_data;
+	uint32_t m_reporter_ts = 0;
+	AHRS_t m_AHRS;
+
+	AHRS_Init(&m_AHRS, 50, 0.1, 1);
 
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
 
@@ -475,13 +482,17 @@ void StartDefaultTask(void const * argument)
 		
 		if (mpu_init_required) {
 			
-			if (MPU_Init( &hi2c1 ) != HAL_OK) {
+			// hard_reset_required
+			if (MPU_Init( &hi2c1, (mpu_init_required > 1 ? 1 : 0) ) != HAL_OK) {
 				printf("ERROR: can't init MPU\r\n");
 				HAL_Delay(500);
+				
+				mpu_init_required = 2; // hard reset required
 				continue;
 			}
 			
 			mpu_init_required = 0;
+			m_reporter_ts = 0;
 		}
 	
 		if(mUartNewMessage)	
@@ -490,40 +501,44 @@ void StartDefaultTask(void const * argument)
 //			mUartNewMessage  = 0;
 		}
 		
-		// reset FIFO
+/*		// reset FIFO
 		if (MPU_ResetFifo( &hi2c1 ) != HAL_OK) {
 			// MPU reset required
 			mpu_init_required = 1;
 			continue;
 		}
-	
-		HAL_Delay(10);
+*/
 		
 		if (MPU_GetFifoFrameData( &hi2c1, accel_data, gyro_data, magn_data, &temp_data ) != HAL_OK) {
 			// MPU reset required
 			mpu_init_required = 1;
 			continue;
 		}
+		AHRS_UpdateAHRS(&m_AHRS, 
+			accel_data[0], accel_data[1], accel_data[2], 
+			AHRS_DEG2RAD(gyro_data[0]), AHRS_DEG2RAD(gyro_data[1]), AHRS_DEG2RAD(gyro_data[2]), 
+			magn_data[0], magn_data[1], magn_data[2]);
+/*
+*/
 
-		printf("FIFO: %f %f %f\r\n", magn_data[0], magn_data[1], magn_data[2]);
-	
-		// Output testing data
+		if (HAL_GetTick() - m_reporter_ts > 1000) {
+			m_reporter_ts = HAL_GetTick();
+
+//			printf("Roll=%0.02f Pitch=%0.02f Yaw=%0.02f\r\n",
+//				m_AHRS.Roll, m_AHRS.Pitch, m_AHRS.Yaw);
+			
+			//printf("ACCL: %0.02f %0.02f %0.2f mg\r\n", accel_data[0], accel_data[1], accel_data[2]);
+			//printf("GYRO: %0.02f %0.02f %0.2f deg/s\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+			// printf("MAGN: %0.02f %0.02f %0.2f mG\r\n", magn_data[0], magn_data[1], magn_data[2]);
+			
+			//float temp = MPU_get_temp( &hi2c1 );
+			printf("T %0.02f\r\n", temp_data);
+			
+			int16_t t_fifo_cnt = MPU_GetFifoCnt( &hi2c1 );
+			printf("Q %d\r\n", t_fifo_cnt);
+		}
 		
-		//float temp = MPU_get_temp( &hi2c1 );
-		//printf("DEBUG: Temp %f -- fifo: %f \r\n", temp, temp_data);
-
-				//int16_t testdata[3];
-
-		//MPU_get_accel( &hi2c1, testdata );
-		//MPU_get_gyro( &hi2c1, testdata );
-		
-		//printf("DATA1: %d %d %d\r\n", accel_data[0], accel_data[1], accel_data[2]);
-		//printf("DATA1: %d %d %d\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
-
-		//MPU_get_magn( &hi2c1, testdata);
-		//printf("DRCT: %d %d %d\r\n", testdata[0], testdata[1], testdata[2]);
-		
-    osDelay(5000);
+    osDelay(10);
   }
   /* USER CODE END 5 */ 
 }
