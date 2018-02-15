@@ -3,10 +3,10 @@
 
 #include "stm32f4xx_hal.h"
 
-extern float MPU_get_temp(I2C_HandleTypeDef *hi2c);
-extern void MPU_get_accel(I2C_HandleTypeDef *hi2c, int16_t *destination);
-extern void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination);
-extern void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination);
+extern HAL_StatusTypeDef MPU_get_temp(I2C_HandleTypeDef *hi2c, float *temp);
+extern HAL_StatusTypeDef MPU_get_accel(I2C_HandleTypeDef *hi2c, float *destination);
+extern HAL_StatusTypeDef MPU_get_gyro(I2C_HandleTypeDef *hi2c, float *destination);
+extern HAL_StatusTypeDef MPU_get_magn(I2C_HandleTypeDef *hi2c, float *destination);
 
 extern HAL_StatusTypeDef MPU_Read(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t *data, uint8_t bytes_to_read);
 extern HAL_StatusTypeDef MPU_Write(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t data);
@@ -14,6 +14,9 @@ extern HAL_StatusTypeDef MPU_Write(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, ui
 extern HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required);
 extern HAL_StatusTypeDef MPU_Init_MAGN(I2C_HandleTypeDef *hi2c);
 extern int16_t MPU_GetFifoCnt( I2C_HandleTypeDef *hi2c );
+
+extern HAL_StatusTypeDef MPU_GetData( I2C_HandleTypeDef *hi2c, float *accel_data, float *gyro_data, float *magn_data, float *temp );
+
 extern HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, float *accel_data, float *gyro_data, float *magn_data, float *temp );
 extern HAL_StatusTypeDef MPU_ResetFifo( I2C_HandleTypeDef *hi2c );
 
@@ -21,13 +24,17 @@ extern HAL_StatusTypeDef AK8963_SL0_Setup(I2C_HandleTypeDef *hi2c, uint8_t ak896
 extern HAL_StatusTypeDef AK8963_SL0_Read(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t *data, uint8_t bytes_to_read);
 extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t data);
 
+extern HAL_StatusTypeDef AK8963_Read(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t *data, uint8_t bytes_to_read);
+extern HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t data);
+
+
 #define MPU_I2C_TIMEOUT 50 // in ms
 
 #define MPU9250_ADDRESS_R 0xD1 // 11010001 = 0xD0 (AD0=0), 11010010 = 0xD2 (AD0=1)
 #define MPU9250_ADDRESS_W MPU9250_ADDRESS_R 
 
-#define AK8963_ADDRESS_W 0x0C
-#define AK8963_ADDRESS_R AK8963_ADDRESS_W
+#define AK8963_ADDRESS_R (0x0C)
+#define AK8963_ADDRESS_W AK8963_ADDRESS_R
 
 #define MPU9250_FIFO_SIZE 512
 // See register 35
@@ -267,11 +274,11 @@ extern HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak896
 #define MPU9250_REG55_BYPASS_EN (0x2)
 // LATCH_INT_EN [5]
 // 1 – INT pin level held until interrupt status is cleared. 
-#define MPU9250_REG55_LATCH_INT_EN (0x1 << 5)
+#define MPU9250_REG55_LATCH_INT_EN (0x1<<5)
 // INT_ANYRD_2CLEAR [4]
 // 1 – Interrupt status is cleared if any read operation is performed. 
-#define MPU9250_REG55_INT_ANYRD_2CLEAR (0x1 << 4)
-#define MPU9250_REG55_DEFAULT (MPU9250_REG55_BYPASS_EN | MPU9250_REG55_LATCH_INT_EN)
+#define MPU9250_REG55_INT_ANYRD_2CLEAR (0x1<<4)
+#define MPU9250_REG55_ENABLE_BYPASS (MPU9250_REG55_BYPASS_EN | MPU9250_REG55_LATCH_INT_EN)
 //#define MPU9250_REG55_DEFAULT (MPU9250_REG55_BYPASS_EN)
 
 // Register 56 – Interrupt Enable 

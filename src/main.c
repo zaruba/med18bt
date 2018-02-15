@@ -256,7 +256,7 @@ static void MX_I2C1_Init(void)
 {
 
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.ClockSpeed = 100000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -463,15 +463,16 @@ void StartDefaultTask(void const * argument)
 {
 
   /* USER CODE BEGIN 5 */
-	uint8_t mpu_init_required = 1;
 	float accel_data[3];
 	float gyro_data[3];
 	float magn_data[3];
 	float temp_data;
-	uint32_t m_reporter_ts = 0;
 	AHRS_t m_AHRS;
 
-	AHRS_Init(&m_AHRS, 50, 0.1, 1);
+	uint8_t mpu_init_required = 1;
+	uint32_t m_started_ts = 0, m_reporter_ts = 0, m_data_counter = 0;
+
+	AHRS_Init(&m_AHRS, 40, 0.1, 1);
 
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
 
@@ -492,7 +493,9 @@ void StartDefaultTask(void const * argument)
 			}
 			
 			mpu_init_required = 0;
+			m_started_ts = HAL_GetTick();
 			m_reporter_ts = 0;
+			m_data_counter = 0;
 		}
 	
 		if(mUartNewMessage)	
@@ -508,37 +511,48 @@ void StartDefaultTask(void const * argument)
 			continue;
 		}
 */
-		
+
+/*		
 		if (MPU_GetFifoFrameData( &hi2c1, accel_data, gyro_data, magn_data, &temp_data ) != HAL_OK) {
 			// MPU reset required
 			mpu_init_required = 1;
 			continue;
 		}
+*/
+		if (MPU_GetData( &hi2c1, accel_data, gyro_data, magn_data, &temp_data ) != HAL_OK) {
+			// MPU reset required
+			mpu_init_required = 1;
+			continue;
+		}
+		m_data_counter++;
+		
+		AHRS_UpdateIMU(&m_AHRS, 
+			accel_data[0], accel_data[1], accel_data[2], 
+			AHRS_DEG2RAD(gyro_data[0]), AHRS_DEG2RAD(gyro_data[1]), AHRS_DEG2RAD(gyro_data[2]));
+		
+/*
 		AHRS_UpdateAHRS(&m_AHRS, 
 			accel_data[0], accel_data[1], accel_data[2], 
 			AHRS_DEG2RAD(gyro_data[0]), AHRS_DEG2RAD(gyro_data[1]), AHRS_DEG2RAD(gyro_data[2]), 
 			magn_data[0], magn_data[1], magn_data[2]);
-/*
 */
 
 		if (HAL_GetTick() - m_reporter_ts > 1000) {
 			m_reporter_ts = HAL_GetTick();
 
-//			printf("Roll=%0.02f Pitch=%0.02f Yaw=%0.02f\r\n",
-//				m_AHRS.Roll, m_AHRS.Pitch, m_AHRS.Yaw);
+			//printf("R=%0.02f P=%0.02f Y=%0.02f\r\n", m_AHRS.Roll, m_AHRS.Pitch, m_AHRS.Yaw);
 			
-			//printf("ACCL: %0.02f %0.02f %0.2f mg\r\n", accel_data[0], accel_data[1], accel_data[2]);
-			//printf("GYRO: %0.02f %0.02f %0.2f deg/s\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+			printf("ACCL: %02.02f %02.02f %02.2f mg\r\n", accel_data[0], accel_data[1], accel_data[2]);
+			//printf("GYRO: %02.02f %02.02f %02.2f deg/s\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
 			// printf("MAGN: %0.02f %0.02f %0.2f mG\r\n", magn_data[0], magn_data[1], magn_data[2]);
 			
 			//float temp = MPU_get_temp( &hi2c1 );
-			printf("T %0.02f\r\n", temp_data);
+			//printf("T %0.02f\r\n", temp_data);
 			
-			int16_t t_fifo_cnt = MPU_GetFifoCnt( &hi2c1 );
-			printf("Q %d\r\n", t_fifo_cnt);
+			printf("FREQ=%02.02f\r\n", (float)m_data_counter * 1000.0f / (HAL_GetTick() - m_started_ts)); 
 		}
 		
-    osDelay(10);
+    osDelay(20);
   }
   /* USER CODE END 5 */ 
 }

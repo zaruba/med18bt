@@ -14,48 +14,77 @@ static float m_magn_sensadj[3];
 
 #define ROOM_TEMP_OFFSET 21 // in C
 
-float MPU_get_temp(I2C_HandleTypeDef *hi2c) {
+HAL_StatusTypeDef MPU_get_temp(I2C_HandleTypeDef *hi2c, float *temp) {
 	uint8_t rawData[2];  // x/y/z gyro register data stored here
-	float res;
 
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_TEMP_OUT_H, 1, rawData, 2, MPU_I2C_TIMEOUT);  // Read the two raw data registers sequentially into data array
-	res = (((uint16_t)rawData[0]) << 8 | rawData[1]) ;  // Turn the MSB and LSB into a 16-bit value
+	*temp = 0;
 	
-  res = (float) ( res / 100.0f );
+	if (MPU_Read(hi2c, REG_TEMP_OUT_H, rawData, 2) != HAL_OK)
+		return HAL_ERROR;
+			
+	*temp = (((uint16_t)rawData[0]) << 8 | rawData[1]) ;  // Turn the MSB and LSB into a 16-bit value
 	
-	return res;
+#define TEMP_OFFSET -521
+#define TEMP_SENS 340
+
+	// TEMP_degC   = ((TEMP_OUT - RoomTemp_Offset)/Temp_Sensitivity)  + 21degC
+	*temp = 21.0f + ((*temp - (float)TEMP_OFFSET) / TEMP_SENS);
+
+	return HAL_OK;
 }
 
-void MPU_get_accel(I2C_HandleTypeDef *hi2c, int16_t *destination) {
+HAL_StatusTypeDef MPU_get_accel(I2C_HandleTypeDef *hi2c, float *accel_data) {
 	uint8_t rawData[6];
 
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_ACCEL_XOUT_H, 1, rawData, 6, MPU_I2C_TIMEOUT);
+	if (MPU_Read(hi2c, REG_ACCEL_XOUT_H, rawData, 6) != HAL_OK)
+		return HAL_ERROR;
 	
-	destination[0] = (int16_t)(((int16_t)rawData[0] << 8) | rawData[1]) ;  // Turn the MSB and LSB into a signed 16-bit value
-	destination[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
-	destination[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
+	accel_data[0] = (int16_t)(((int16_t)rawData[0] << 8) | rawData[1]) ;  // Turn the MSB and LSB into a signed 16-bit value
+	accel_data[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
+	accel_data[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
+
+	accel_data[0] = accel_data[0] * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[1] = accel_data[1] * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[2] = accel_data[2] * MPU9250_ACCEL_2G_RESOLUTION;
+	
+	return HAL_OK;
 }
 
-void MPU_get_gyro(I2C_HandleTypeDef *hi2c, int16_t * destination) {
+HAL_StatusTypeDef MPU_get_gyro(I2C_HandleTypeDef *hi2c, float *gyro_data) {
 	uint8_t rawData[6];  // x/y/z gyro register data stored here
 	
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, REG_GYRO_XOUT_H, 1, rawData, 6, MPU_I2C_TIMEOUT);    // Read the six raw data registers sequentially into data array
-	destination[0] = (int16_t)(((int16_t)rawData[0] << 8) | rawData[1]) ;  // Turn the MSB and LSB into a signed 16-bit value
-	destination[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
-	destination[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
+	if (MPU_Read(hi2c, REG_GYRO_XOUT_H, rawData, 6) != HAL_OK)
+		return HAL_ERROR;
+	
+	gyro_data[0] = (int16_t)(((int16_t)rawData[0] << 8) | rawData[1]) ;  // Turn the MSB and LSB into a signed 16-bit value
+	gyro_data[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
+	gyro_data[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
 
+	gyro_data[0] = (gyro_data[0] + 630)* MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[1] = (gyro_data[1] - 550) * MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[2] = (gyro_data[2] + 130)* MPU9250_GYRO_250DPS_RESOLUTION;
+		
+	return HAL_OK;
 }
 
-	
-void MPU_get_magn(I2C_HandleTypeDef *hi2c, int16_t * destination) {
-	uint8_t rawData[6];  // x/y/z gyro register data stored here
+
+HAL_StatusTypeDef MPU_get_magn(I2C_HandleTypeDef *hi2c, float *magn_data) {
+	uint8_t rawData[AK8963_FRAME_SZ];  // x/y/z gyro register data stored here
 		
 	// Reading sample data from the slave device, it should be magn data
-	HAL_I2C_Mem_Read(hi2c, MPU9250_ADDRESS_R, MPU9250_SLAVE0_DATA_ADDR, 1, (uint8_t *)rawData, 6, MPU_I2C_TIMEOUT);
+	if (MPU_Read(hi2c, MPU9250_SLAVE0_DATA_ADDR, rawData, AK8963_FRAME_SZ) != HAL_OK)
+		return HAL_ERROR;
+	
 	// HIGHT byte, than LOW byte
-	destination[0] = (int16_t)(((int16_t)rawData[0] << 8) | rawData[1]);
-	destination[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]); 
-	destination[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]);
+	magn_data[0] = (int16_t)(((int16_t)rawData[1] << 8) | rawData[2]);
+	magn_data[1] = (int16_t)(((int16_t)rawData[3] << 8) | rawData[4]); 
+	magn_data[2] = (int16_t)(((int16_t)rawData[5] << 8) | rawData[6]);
+
+	magn_data[0] *= m_magn_sensadj[0] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_X;
+	magn_data[1] *= m_magn_sensadj[1] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Y;
+	magn_data[2] *= m_magn_sensadj[2] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Z;
+
+	return HAL_OK;
 }
 //
 
@@ -281,7 +310,6 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	uint8_t buffer[3];
 	if (AK8963_SL0_Read(hi2c, 0x10, buffer, 3) != HAL_OK)
 		return HAL_ERROR;
-
 	
 	m_magn_sensadj[0] = (((float)buffer[0] - 128.0f)/(256.0f) + 1.0f);
 	m_magn_sensadj[1] = (((float)buffer[1] - 128.0f)/(256.0f) + 1.0f);
@@ -314,15 +342,57 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	// =========================================================================================
 	// Setup MPU9250 - FIFO
 	// =========================================================================================
-	if (MPU_Write(hi2c, MPU9250_REG35_ADDR, MPU9250_REG35_DEFAULT) != HAL_OK)
-		return HAL_ERROR;	
-	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
+//	if (MPU_Write(hi2c, MPU9250_REG35_ADDR, MPU9250_REG35_DEFAULT) != HAL_OK)
+//		return HAL_ERROR;	
+//	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
+
+	// =========================================================================================
+	// BYPASS_EN 
+	// =========================================================================================
+	//	if (MPU_Write(hi2c, MPU9250_REG55_ADDR, MPU9250_REG55_ENABLE_BYPASS) != HAL_OK)
+	//	return HAL_ERROR;	
 	
-		
 	printf("DEBUG: MPU initliazed sucessully\r\n");
 	return HAL_OK;
 }
 //
+
+// using SLAVE0 to write data
+HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t data) {
+	
+	return HAL_OK;
+}
+//
+
+
+HAL_StatusTypeDef AK8963_Read(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t *data, uint8_t bytes_to_read) {
+	HAL_StatusTypeDef res;
+
+	
+	for(int i = 1; i < 127; i++) {
+		res = HAL_I2C_Mem_Read(hi2c, i, 0x0, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
+		if (res == HAL_OK)
+				printf("FOUND @0x%x\r\n", i);
+	}
+	
+//	res = HAL_I2C_Mem_Read(hi2c, AK8963_ADDRESS_R, reg_addr, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
+	res = HAL_I2C_Mem_Read(hi2c, 0x0c<<1|1, reg_addr, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
+	if (res != HAL_OK) {
+		printf("ERROR: I2C 0x%x@0x%x: read: failed\r\n", reg_addr, AK8963_ADDRESS_R);
+		return HAL_ERROR;
+	}
+
+#ifdef DEBUG_I2C
+	if (bytes_to_read == 1)
+		printf("DEBUG: I2C 0x%x@0x%x: read: 0x%x\r\n", reg_addr, AK8963_ADDRESS_R, (uint8_t)*data);
+	else
+		printf("DEBUG: I2C 0x%x@0x%x: read: %d bytes\r\n", reg_addr, AK8963_ADDRESS_R, bytes_to_read);
+#endif
+	
+	return HAL_OK;
+}
+
+
 
 // using SLAVE0 to write data
 HAL_StatusTypeDef AK8963_SL0_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr, uint8_t data) {
@@ -452,7 +522,9 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, float *accel_da
 		}	
 		
 		if (t_fifo_cnt < MPU9250_FIFO_FRAME_SIZE) {
+#ifdef DEBUG_I2C			
 			printf("DEBUG: need more data to read: %d of %d bytes available\r\n", t_fifo_cnt, MPU9250_FIFO_FRAME_SIZE);
+#endif
 			return HAL_OK;
 		}
 		
@@ -559,4 +631,12 @@ HAL_StatusTypeDef MPU_GetFifoFrameData( I2C_HandleTypeDef *hi2c, float *accel_da
 }
 //
 
-
+HAL_StatusTypeDef MPU_GetData( I2C_HandleTypeDef *hi2c, float *accel_data, float *gyro_data, float *magn_data, float *temp ) {
+	
+	MPU_get_temp( hi2c, temp );
+	MPU_get_accel( hi2c, accel_data);
+	MPU_get_gyro( hi2c, gyro_data);
+	MPU_get_magn( hi2c, magn_data);
+	
+	return HAL_OK;
+}
