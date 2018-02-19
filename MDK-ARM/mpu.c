@@ -43,9 +43,9 @@ HAL_StatusTypeDef MPU_get_accel(I2C_HandleTypeDef *hi2c, float *accel_data) {
 	accel_data[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
 	accel_data[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
 
-	accel_data[0] = accel_data[0] * MPU9250_ACCEL_2G_RESOLUTION;
-	accel_data[1] = accel_data[1] * MPU9250_ACCEL_2G_RESOLUTION;
-	accel_data[2] = accel_data[2] * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[0] = (accel_data[0] + AK8963_ACCEL_BIAS_X) * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[1] = (accel_data[1] + AK8963_ACCEL_BIAS_Y) * MPU9250_ACCEL_2G_RESOLUTION;
+	accel_data[2] = (accel_data[2] + AK8963_ACCEL_BIAS_Z) * MPU9250_ACCEL_2G_RESOLUTION;
 	
 	return HAL_OK;
 }
@@ -60,9 +60,9 @@ HAL_StatusTypeDef MPU_get_gyro(I2C_HandleTypeDef *hi2c, float *gyro_data) {
 	gyro_data[1] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[3]) ; 
 	gyro_data[2] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[5]) ;
 
-	gyro_data[0] = (gyro_data[0] + 630)* MPU9250_GYRO_250DPS_RESOLUTION;
-	gyro_data[1] = (gyro_data[1] - 550) * MPU9250_GYRO_250DPS_RESOLUTION;
-	gyro_data[2] = (gyro_data[2] + 130)* MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[0] = (gyro_data[0] + AK8963_GYRO_BIAS_X) * MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[1] = (gyro_data[1] + AK8963_GYRO_BIAS_Y) * MPU9250_GYRO_250DPS_RESOLUTION;
+	gyro_data[2] = (gyro_data[2] + AK8963_GYRO_BIAS_Z) * MPU9250_GYRO_250DPS_RESOLUTION;
 		
 	return HAL_OK;
 }
@@ -71,18 +71,27 @@ HAL_StatusTypeDef MPU_get_gyro(I2C_HandleTypeDef *hi2c, float *gyro_data) {
 HAL_StatusTypeDef MPU_get_magn(I2C_HandleTypeDef *hi2c, float *magn_data) {
 	uint8_t rawData[AK8963_FRAME_SZ];  // x/y/z gyro register data stored here
 		
+#ifdef MPU9250_BYPASS_MODE
+	// Reading sample data from the slave device, it should be magn data
+	if (AK8963_Read(hi2c, 0x02, rawData, AK8963_FRAME_SZ) != HAL_OK) 
+		return HAL_ERROR;
+
+printf("ST1=%x [%x%x] [%x%x] [%x%x]\r\n", rawData[0],
+		rawData[2], rawData[1], rawData[4],	rawData[3], rawData[6], rawData[5]);	
+#else
 	// Reading sample data from the slave device, it should be magn data
 	if (MPU_Read(hi2c, MPU9250_SLAVE0_DATA_ADDR, rawData, AK8963_FRAME_SZ) != HAL_OK)
 		return HAL_ERROR;
+#endif
 	
 	// HIGHT byte, than LOW byte
-	magn_data[0] = (int16_t)(((int16_t)rawData[1] << 8) | rawData[2]);
-	magn_data[1] = (int16_t)(((int16_t)rawData[3] << 8) | rawData[4]); 
-	magn_data[2] = (int16_t)(((int16_t)rawData[5] << 8) | rawData[6]);
+	magn_data[0] = (int16_t)(((int16_t)rawData[2] << 8) | rawData[1]);
+	magn_data[1] = (int16_t)(((int16_t)rawData[4] << 8) | rawData[3]); 
+	magn_data[2] = (int16_t)(((int16_t)rawData[6] << 8) | rawData[5]);
 
-	magn_data[0] *= m_magn_sensadj[0] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_X;
-	magn_data[1] *= m_magn_sensadj[1] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Y;
-	magn_data[2] *= m_magn_sensadj[2] * AK8963_SCALE_FACTOR + AK8963_MAG_BIAS_Z;
+	magn_data[0] = (magn_data[0] + AK8963_MAG_BIAS_X) * m_magn_sensadj[0] * AK8963_SCALE_FACTOR;
+	magn_data[1] = (magn_data[1] + AK8963_MAG_BIAS_Y) * m_magn_sensadj[1] * AK8963_SCALE_FACTOR;
+	magn_data[2] = (magn_data[2] + AK8963_MAG_BIAS_Z) * m_magn_sensadj[2] * AK8963_SCALE_FACTOR;
 
 	return HAL_OK;
 }
@@ -228,37 +237,60 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	// Setip MP9250 to use compass via internal i2c bus
 	// =========================================================================================
 
-	// Disable by-pass mode (INT_PIN_CFG @55)
-	// Disconnects the bypass on EDA/ECL `	if it was enabled
-	if (MPU_Read(hi2c, MPU9250_REG55_ADDR, &t, 1) != HAL_OK)
-		return HAL_ERROR;	
-	t = t & ~MPU9250_REG55_BYPASS_EN;
-	if (MPU_Write(hi2c, MPU9250_REG55_ADDR, t) != HAL_OK)
-		return HAL_ERROR;	
-
 	// Enables the I2C Master within the MPU (USER_CTRL @106)
 	if (MPU_Read(hi2c, MPU9250_REG106_ADDR, &t, 1) != HAL_OK)
 		return HAL_ERROR;	
-	t = t | MPU9250_REG106_FIFO_EN;
+
+#ifdef MPU9250_BYPASS_MODE
+	// disable multi master
+	t = t & ~MPU9250_REG106_I2C_MST_EN;
+#else // MPU9250_BYPASS_MODE
 	t = t | MPU9250_REG106_I2C_MST_EN;
+#endif // MPU9250_BYPASS_MODE
+	
+#ifdef MPU9250_FIFO_MODE
+	t = t | MPU9250_REG106_FIFO_EN;
+#else // MPU9250_FIFO_MODE
+	t = t & ~MPU9250_REG106_FIFO_EN;
+#endif // MPU9250_FIFO_MODE
+	
 	if (MPU_Write(hi2c, MPU9250_REG106_ADDR, t) != HAL_OK)
 		return HAL_ERROR;	
 	
-	
-	// Setup I2C MST 
+	// Disable by-pass mode (INT_PIN_CFG @55)
+	// Disconnects the bypass on EDA/ECL if it was enabled
+	if (MPU_Read(hi2c, MPU9250_REG55_ADDR, &t, 1) != HAL_OK)
+		return HAL_ERROR;	
+
+#ifdef MPU9250_BYPASS_MODE
+	t = t | MPU9250_REG55_BYPASS_EN;
+#else // MPU9250_BYPASS_MODE
+	t = t & ~MPU9250_REG55_BYPASS_EN;
+#endif // MPU9250_BYPASS_MODE
+
+	if (MPU_Write(hi2c, MPU9250_REG55_ADDR, t) != HAL_OK)
+		return HAL_ERROR;	
+
+		// Setup I2C MST 
 	if (MPU_Read(hi2c, MPU9250_REG36_ADDR, &t, 1) != HAL_OK)
 		return HAL_ERROR;	
 	
+#ifdef MPU9250_BYPASS_MODE
+	t = t | MPU9250_REG36_MULT_MST_EN;
+	
+#else // MPU9250_BYPASS_MODE
 	// clear MULT_MST_EN [7] - Unless there are multiple masters hooked up to that bus
 	t = t & ~MPU9250_REG36_MULT_MST_EN;
+#endif // MPU9250_BYPASS_MODE
+	
 	// clear SLV3_FIFO_EN [5] - Unless you are using FIFO for Slave3 requested data 
-	t = t & ~MPU9250_REG36_SLV_3_FIFO_EN;
+	// t = t & ~MPU9250_REG36_SLV_3_FIFO_EN;
 	// enable WAIT_FOR_ES [6] - Causes the data ready interrupt to wait for the external data
-	t = t | MPU9250_REG36_WAIT_FOR_ES;
+	// t = t | MPU9250_REG36_WAIT_FOR_ES;
 	// enable I2C_P_NSR [4] - When transitioning slaves; issue a full stop, then a start
-	t = t | MPU9250_REG36_I2C_MST_P_NSR;
+	// t = t | MPU9250_REG36_I2C_MST_P_NSR;
 	// I2C_MST_CLK = 400kHz 
-	t = t | MPU9250_REG36_I2C_MST_CLK_400KHZ;
+	// t = t | MPU9250_REG36_I2C_MST_CLK_400KHZ;
 	
 	if (MPU_Write(hi2c, MPU9250_REG36_ADDR, t) != HAL_OK)
 		return HAL_ERROR;	
@@ -288,7 +320,7 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	// ---------------------------------
 
 	// AK8963 - Get Device ID
-	if (AK8963_SL0_Read(hi2c, AK8963_WAI_ADDR, &t, 1) != HAL_OK)
+	if (AK8963_Read(hi2c, AK8963_WAI_ADDR, &t, 1) != HAL_OK)
 		return HAL_ERROR;
 
 	if ( (t&0xff) != AK8963_REG0_WAI_ID) {
@@ -297,18 +329,18 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	}
 	
 	// Shutdown AK8963
-	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
+	if (AK8963_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
 		return HAL_ERROR;
 	HAL_Delay(100);
 	
 	// set AK8963 to FUSE ROM access
-	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0xF) != HAL_OK)
+	if (AK8963_Write(hi2c, 0xA, (uint8_t)0xF) != HAL_OK)
 		return HAL_ERROR;
 	HAL_Delay(100);
 
 	// read the AK8963 ASA registers and compute magnetometer scale factors
 	uint8_t buffer[3];
-	if (AK8963_SL0_Read(hi2c, 0x10, buffer, 3) != HAL_OK)
+	if (AK8963_Read(hi2c, 0x10, buffer, 3) != HAL_OK)
 		return HAL_ERROR;
 	
 	m_magn_sensadj[0] = (((float)buffer[0] - 128.0f)/(256.0f) + 1.0f);
@@ -322,14 +354,14 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 		m_magn_sensadj[0], m_magn_sensadj[1], m_magn_sensadj[2]);
 	
 	// Shutdown AK8963
-	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
+	if (AK8963_Write(hi2c, 0xA, (uint8_t)0x0) != HAL_OK)
 		return HAL_ERROR;
 	HAL_Delay(100);
 	
 	// ---------------------------------
 	// Magn :: Power On
 	// ---------------------------------
-	if (AK8963_SL0_Write(hi2c, 0xA, (uint8_t)0x16) != HAL_OK)
+	if (AK8963_Write(hi2c, 0xA, (uint8_t)0x16) != HAL_OK)
 		return HAL_ERROR;
 	HAL_Delay(100);
 
@@ -342,16 +374,12 @@ HAL_StatusTypeDef MPU_Init(I2C_HandleTypeDef *hi2c, uint8_t hard_reset_required)
 	// =========================================================================================
 	// Setup MPU9250 - FIFO
 	// =========================================================================================
-//	if (MPU_Write(hi2c, MPU9250_REG35_ADDR, MPU9250_REG35_DEFAULT) != HAL_OK)
-//		return HAL_ERROR;	
-//	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
+#ifdef MPU9250_FIFO_MODE
+	if (MPU_Write(hi2c, MPU9250_REG35_ADDR, MPU9250_REG35_DEFAULT) != HAL_OK)
+		return HAL_ERROR;	
+	printf("DEBUG: FIFO(%d): 0x%x\r\n", MPU9250_REG35_ADDR, t);
+#endif
 
-	// =========================================================================================
-	// BYPASS_EN 
-	// =========================================================================================
-	//	if (MPU_Write(hi2c, MPU9250_REG55_ADDR, MPU9250_REG55_ENABLE_BYPASS) != HAL_OK)
-	//	return HAL_ERROR;	
-	
 	printf("DEBUG: MPU initliazed sucessully\r\n");
 	return HAL_OK;
 }
@@ -364,17 +392,10 @@ HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_reg_addr,
 }
 //
 
-
 HAL_StatusTypeDef AK8963_Read(I2C_HandleTypeDef *hi2c, uint8_t reg_addr, uint8_t *data, uint8_t bytes_to_read) {
 	HAL_StatusTypeDef res;
 
-	
-	for(int i = 1; i < 127; i++) {
-		res = HAL_I2C_Mem_Read(hi2c, i, 0x0, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
-		if (res == HAL_OK)
-				printf("FOUND @0x%x\r\n", i);
-	}
-	
+
 //	res = HAL_I2C_Mem_Read(hi2c, AK8963_ADDRESS_R, reg_addr, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
 	res = HAL_I2C_Mem_Read(hi2c, 0x0c<<1|1, reg_addr, 1, data, bytes_to_read, MPU_I2C_TIMEOUT);
 	if (res != HAL_OK) {

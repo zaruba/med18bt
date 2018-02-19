@@ -472,7 +472,7 @@ void StartDefaultTask(void const * argument)
 	uint8_t mpu_init_required = 1;
 	uint32_t m_started_ts = 0, m_reporter_ts = 0, m_data_counter = 0;
 
-	AHRS_Init(&m_AHRS, 40, 0.1, 1);
+	AHRS_Init(&m_AHRS, 40, 0.5, 1);
 
 	HAL_UART_Receive_IT(&huart1, &mUartRxBuffer, 1);
 
@@ -525,31 +525,31 @@ void StartDefaultTask(void const * argument)
 			continue;
 		}
 		m_data_counter++;
-		
+/*		
 		AHRS_UpdateIMU(&m_AHRS, 
 			accel_data[0], accel_data[1], accel_data[2], 
 			AHRS_DEG2RAD(gyro_data[0]), AHRS_DEG2RAD(gyro_data[1]), AHRS_DEG2RAD(gyro_data[2]));
-		
-/*
+		*/
+
 		AHRS_UpdateAHRS(&m_AHRS, 
 			accel_data[0], accel_data[1], accel_data[2], 
 			AHRS_DEG2RAD(gyro_data[0]), AHRS_DEG2RAD(gyro_data[1]), AHRS_DEG2RAD(gyro_data[2]), 
 			magn_data[0], magn_data[1], magn_data[2]);
-*/
+
 
 		if (HAL_GetTick() - m_reporter_ts > 1000) {
 			m_reporter_ts = HAL_GetTick();
 
-			//printf("R=%0.02f P=%0.02f Y=%0.02f\r\n", m_AHRS.Roll, m_AHRS.Pitch, m_AHRS.Yaw);
+			//printf("P=%0.02f R=%0.02f Y=%0.02f\r\n", m_AHRS.Pitch, m_AHRS.Roll, m_AHRS.Yaw);
 			
-			printf("ACCL: %02.02f %02.02f %02.2f mg\r\n", accel_data[0], accel_data[1], accel_data[2]);
-			//printf("GYRO: %02.02f %02.02f %02.2f deg/s\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
-			// printf("MAGN: %0.02f %0.02f %0.2f mG\r\n", magn_data[0], magn_data[1], magn_data[2]);
+			printf("A: %02.02f %02.02f %02.2f mg\r\n", accel_data[0], accel_data[1], accel_data[2]);
+			printf("G: %02.02f %02.02f %02.2f deg/s\r\n", gyro_data[0], gyro_data[1], gyro_data[2]);
+			printf("M: %0.02f %0.02f %0.2f mG\r\n", magn_data[0], magn_data[1], magn_data[2]);
 			
 			//float temp = MPU_get_temp( &hi2c1 );
 			//printf("T %0.02f\r\n", temp_data);
 			
-			printf("FREQ=%02.02f\r\n", (float)m_data_counter * 1000.0f / (HAL_GetTick() - m_started_ts)); 
+			//printf("FREQ=%02.02f\r\n", (float)m_data_counter * 1000.0f / (HAL_GetTick() - m_started_ts)); 
 		}
 		
     osDelay(20);

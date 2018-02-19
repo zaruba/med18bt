@@ -41,6 +41,27 @@ extern HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_re
 // Contains: Temp (2) + 
 #define MPU9250_FIFO_FRAME_SIZE (6+2+6+AK8963_FRAME_SZ) // ACCEL(3*2), TEMP(2), GYRO(3*2), SLAVE DATA (ST1 + 3*2 + ST2)
 
+// Enable BYPASS mode
+#define MPU9250_BYPASS_MODE 1
+// Enable FIFO mode
+//#define MPU9250_FIFO_MODE 1
+
+#define MPU9250_ACCEL_2G_RESOLUTION (100.0f * 2.0f/32768.0f) 
+#define MPU9250_GYRO_250DPS_RESOLUTION (250.0f/32768.0f) 
+
+#define AK8963_ACCEL_BIAS_X 1450
+#define AK8963_ACCEL_BIAS_Y 100
+#define AK8963_ACCEL_BIAS_Z 0
+
+#define AK8963_GYRO_BIAS_X 630
+#define AK8963_GYRO_BIAS_Y -550
+#define AK8963_GYRO_BIAS_Z 130
+
+#define AK8963_MAG_BIAS_X 0 // User environmental x-axis correction in milliGauss, should be automatically calculated
+#define AK8963_MAG_BIAS_Y 0 // User environmental x-axis correction in milliGauss
+#define AK8963_MAG_BIAS_Z 0 // User environmental x-axis correction in milliGauss
+
+
 //  Register 25 – Sample Rate Divider 
 // -------------------------------------------------
 // SMPLRT_DIV 
@@ -81,7 +102,7 @@ extern HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_re
 #define MPU9250_REG27_GYRO_FS_MASK ((0x1<<4) | (0x1<<3))
 #define MPU9250_REG27_GYRO_FCHOICE_MASK (0x1 << 1 | 0x1 )
 #define MPU9250_REG27_GYRO_FS_250DPS (0x0<<3)
-#define MPU9250_GYRO_250DPS_RESOLUTION (250.0f/32768.0f) 
+
 
 // Register 28 – Accelerometer Configuration
 // -------------------------------------------------
@@ -90,7 +111,6 @@ extern HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_re
 #define MPU9250_REG28_ACCEL_CFG_FS_MASK ((0x1<<4) | (0x1<<3))
 #define MPU9250_REG28_ACCEL_DLPFCFG_MASK ((0x1 << 1) | 0x1 )
 #define MPU9250_REG28_ACCEL_FS_2G ((0x0<<4) | (0x0<<3))
-#define MPU9250_ACCEL_2G_RESOLUTION (2.0f/32768.0f) 
 
 // Register 29 – Accelerometer Configuration 2
 // -------------------------------------------------
@@ -376,13 +396,11 @@ extern HAL_StatusTypeDef AK8963_Write(I2C_HandleTypeDef *hi2c, uint8_t ak8963_re
 // Description 	Device ID (Device ID of AKM. It is described in one byte and fixed value: 0x48)
 // Bit width 		8
 #define AK8963_WAI_ADDR 0x0
-#define AK8963_HXL_ADDR 0x2 // 8 bytes: ST1, HXL, HXH, XYL, XYH, XZL, XZH, ST2 - see MPU9250_FIFO_FRAME_SIZE
+#define AK8963_ST1_ADDR 0x2 // 8 bytes: ST1, HXL, HXH, XYL, XYH, XZL, XZH, ST2 - see MPU9250_FIFO_FRAME_SIZE
+#define AK8963_HXL_ADDR 0x3
 #define AK8963_FRAME_SZ 8
 #define AK8963_REG0_WAI_ID 0x48
 
-#define AK8963_MAG_BIAS_X 0 // User environmental x-axis correction in milliGauss, should be automatically calculated
-#define AK8963_MAG_BIAS_Y 0 // User environmental x-axis correction in milliGauss
-#define AK8963_MAG_BIAS_Z 0 // User environmental x-axis correction in milliGauss
 		
 #define AK8963_SCALE_FACTOR (4912.0f / 32760.0f) // 0.149..f OR ((float)0.15f) 
 	
